@@ -63,7 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('UC4ERPG')),
+      appBar: AppBar(title: const Text(''), actions: const [SyncIcon()]),
       drawer: const _AppDrawer(),
       body: Column(
         children: [
@@ -122,7 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text(''), actions: const [SyncIcon()]),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -145,6 +145,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+class SyncIcon extends StatelessWidget {
+  const SyncIcon({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: SyncStatus.busy,
+      builder: (context, busy, _) {
+        final lastPush = SyncStatus.lastPush?.toLocal().toString() ?? 'never';
+        final lastPull = SyncStatus.lastPull?.toLocal().toString() ?? 'never';
+        final tip = 'Last push: ' + lastPush + '\nLast pull: ' + lastPull;
+        return Tooltip(
+          message: tip,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: busy
+                ? const SizedBox(
+                    width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_done),
+          ),
+        );
+      },
     );
   }
 }
