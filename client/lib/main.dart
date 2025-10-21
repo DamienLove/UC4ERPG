@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'util/backup.dart';
 import 'sync/journal_sync.dart';
 import 'services/narrator.dart' as narrator;
 import 'state/journal.dart';
 
 void main() {
   runApp(const UC4ERPGApp());
+}
+
+class SyncStatus {
+  static final ValueNotifier<bool> busy = ValueNotifier(false);
+  static DateTime? lastPull;
+  static DateTime? lastPush;
 }
 
 class UC4ERPGApp extends StatelessWidget {
@@ -23,36 +31,70 @@ class UC4ERPGApp extends StatelessWidget {
   }
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Pull on app start
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        SyncStatus.busy.value = true;
+        final added = await JournalSyncService.pullAndMerge();
+        SyncStatus.lastPull = DateTime.now();
+        if (mounted && added > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Pulled ' + added.toString() + ' new entries')),
+          );
+        }
+      } catch (_) {
+        // swallow for now
+      } finally {
+        SyncStatus.busy.value = false;
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('UC4ERPG')),
-      drawer: const _App
-          ListTile(title: const Text('Settings'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),),
-          const DrawerHeader(child: Text('UC4ERPG')),
-          ListTile(
-            title: const Text('Home'),
-            onTap: () => Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (_) => const HomeScreen()),
-              (route) => false,
-            ),
+      drawer: const _AppDrawer(),
+      body: Column(
+        children: [
+          ValueListenableBuilder<bool>(
+            valueListenable: SyncStatus.busy,
+            builder: (context, busy, _) => busy
+                ? const LinearProgressIndicator(minHeight: 2)
+                : const SizedBox.shrink(),
           ),
-          ListTile(
-            title: const Text('Session'),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SessionScreen()),
-            ),
-          ),
-          ListTile(
-            title: const Text('Journal'),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const JournalScreen()),
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SessionScreen()),
+                    ),
+                    child: const Text('Start Session'),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const JournalScreen()),
+                    ),
+                    child: const Text('Open Journal'),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
