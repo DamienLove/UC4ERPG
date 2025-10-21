@@ -11,7 +11,7 @@ jobs:
           node-version: '20'
       - name: Install deps
         working-directory: supabase
-        run: npm ci
+        run: npm install
       - name: Run smoke test
         working-directory: supabase
         env:
