@@ -1,0 +1,23 @@
+name: Flutter
+on:
+  push:
+  pull_request:
+jobs:
+  flutter-ci:
+    if: ${{ hashFiles('client/pubspec.yaml') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+      - name: Install dependencies
+        working-directory: client
+        run: flutter pub get
+      - name: Analyze
+        working-directory: client
+        run: flutter analyze
+      - name: Test
+        working-directory: client
+        run: flutter test --no-pub
