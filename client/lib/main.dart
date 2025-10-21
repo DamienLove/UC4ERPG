@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'services/narrator.dart' as narrator;
+import 'state/journal.dart';
 
 void main() {
   runApp(const UC4ERPGApp());
@@ -54,30 +56,115 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-class SessionScreen extends StatelessWidget {
+class SessionScreen extends StatefulWidget {
   const SessionScreen({super.key});
+
+  @override
+  State<SessionScreen> createState() => _SessionScreenState();
+}
+
+class _SessionScreenState extends State<SessionScreen> {
+  final _promptController = TextEditingController();
+  final _seedController = TextEditingController(text: '42');
+  String _output = '';
+
+  void _generate() {
+    final prompt = _promptController.text.trim();
+    final seed = int.tryParse(_seedController.text.trim()) ?? 42;
+    final text = narrator.generateNarration(prompt: prompt, seed: seed);
+    setState(() => _output = text);
+  }
+
+  void _saveToJournal() {
+    if (_output.isEmpty) return;
+    JournalStore.instance.addEntry(_output);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saved to Journal')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Session')),
-      body: const Center(child: Text('AI Narration Placeholder')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            TextField(
+              key: const Key('promptField'),
+              controller: _promptController,
+              decoration: const InputDecoration(
+                labelText: 'Prompt',
+                border: OutlineInputBorder(),
+              ),
+              minLines: 2,
+              maxLines: 4,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const Key('seedField'),
+                    controller: _seedController,
+                    decoration: const InputDecoration(
+                      labelText: 'Seed',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(onPressed: _generate, child: const Text('Generate')),
+                const SizedBox(width: 8),
+                OutlinedButton(onPressed: _saveToJournal, child: const Text('Save')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SingleChildScrollView(
+                  child: Text(
+                    _output.isEmpty ? 'Your narration will appear here.' : _output,
+                    style: const TextStyle(height: 1.4),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
-
 class JournalScreen extends StatelessWidget {
   const JournalScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final entries = JournalStore.instance.entries;
     return Scaffold(
       appBar: AppBar(title: const Text('Journal')),
-      body: const Center(child: Text('Journal Entries Placeholder')),
+      body: entries.isEmpty
+          ? const Center(child: Text('No entries yet.'))
+          : ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: entries.length,
+              separatorBuilder: (_, __) => const Divider(height: 24),
+              itemBuilder: (context, index) {
+                final e = entries[entries.length - index - 1];
+                return Text(e, style: const TextStyle(height: 1.4));
+              },
+            ),
     );
   }
 }
-
 class _AppDrawer extends StatelessWidget {
   const _AppDrawer();
   @override
