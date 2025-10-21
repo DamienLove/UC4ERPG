@@ -24,3 +24,8 @@ flutter run
 ```
 
 Use the Settings screen â†’ â€œPush Journal Nowâ€ to upload current entries.
+
+You can override via flutter defines (no code edits):
+``bash
+flutter run --dart-define=SUPABASE_URL=https://qbewpsegsyqxqpcaolgv.supabase.co --dart-define=SUPABASE_ANON_KEY=<anon>
+``
