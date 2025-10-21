@@ -1,0 +1,30 @@
+name: Flutter Web Build
+on:
+  workflow_dispatch:
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+      - name: Install deps
+        working-directory: client
+        run: |
+          flutter pub get
+          flutter create .
+      - name: Analyze and test
+        working-directory: client
+        run: |
+          flutter analyze
+          flutter test --no-pub
+      - name: Build web release
+        working-directory: client
+        run: flutter build web --release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uc4erpg-web
+          path: client/build/web
