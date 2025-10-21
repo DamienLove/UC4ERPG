@@ -1,0 +1,20 @@
+name: Supabase Smoke Test
+on:
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deps
+        working-directory: supabase
+        run: npm ci
+      - name: Run smoke test
+        working-directory: supabase
+        env:
+          SUPABASE_URL: https://qbewpsegsyqxqpcaolgv.supabase.co
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFiZXdwc2Vnc3lxeHFwY2FvbGd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwNzc0NDMsImV4cCI6MjA3NjY1MzQ0M30.MFO0I1VZVw7nSK5sC7rqx-LTCNItYtEDAcSw0i-PdLk
+        run: node smoke_test.mjs
