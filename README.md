@@ -1,4 +1,5 @@
 # UC4ERPG
+[![Deploy Pages](https://github.com/DamienLove/UC4ERPG/actions/workflows/pages.yml/badge.svg)](https://github.com/DamienLove/UC4ERPG/actions/workflows/pages.yml)
 
 Universe Connected for Everyone the RPG
 
