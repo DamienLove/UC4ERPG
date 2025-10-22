@@ -24,6 +24,7 @@ class GameState {
   // Scene flags
   final ValueNotifier<bool> consentGiven = ValueNotifier<bool>(false);
   final Set<String> _spokenTo = <String>{};
+  Set<String> get spokenTo => _spokenTo;
 
   // Chapter/Section/Quest tracking
   final ValueNotifier<String> chapter = ValueNotifier<String>('Chapter 1: Arrival');
@@ -76,5 +77,14 @@ class GameState {
       }
     }
   }
-}
 
+  void setSpokenBulk(Iterable<String> names) {
+    _spokenTo
+      ..clear()
+      ..addAll(names);
+    final q = quest.value;
+    if (_spokenTo.any((n) => n.contains('Elena'))) _setObjectiveComplete(q, 'talk_elena');
+    if (_spokenTo.any((n) => n.contains('Arun'))) _setObjectiveComplete(q, 'talk_arun');
+    quest.notifyListeners();
+  }
+}

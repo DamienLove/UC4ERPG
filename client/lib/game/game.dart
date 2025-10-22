@@ -1,4 +1,4 @@
-import 'dart:ui';
+﻿import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
@@ -6,12 +6,15 @@ import 'package:flame/input.dart';
 import 'package:flame/collisions.dart';
 import 'package:flame/sprite.dart';
 import 'package:flame_tiled/flame_tiled.dart';
+import 'package:flame_audio/flame_audio.dart';
+import 'package:flame/events.dart';
 import 'package:flutter/material.dart' as m;
 import 'package:flutter/foundation.dart' as f show ValueNotifier;
 import 'dart:math' as math;
 import 'state.dart';
+import 'persist.dart';
 
-class UC4EGame extends FlameGame with HasCollisionDetection {
+class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
   late final JoystickComponent _joystick;
   late final Player _player;
   late final SpriteSheet _labTiles;
@@ -26,6 +29,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
   final Set<String> _spokenTo = {};
   final f.ValueNotifier<bool> _showConsent = f.ValueNotifier<bool>(false);
   final f.ValueNotifier<String> objective = f.ValueNotifier<String>('Objective: Speak with the doctors.');
+  final Set<LogicalKeyboardKey> _keys = <LogicalKeyboardKey>{};
 
   @override
   Future<void> onLoad() async {
@@ -38,6 +42,9 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     try {
       _tiled = await TiledComponent.load('maps/lab.tmx', Vector2.all(32));
       add(_tiled!);
+      // Ambient
+      FlameAudio.bgm.initialize();
+      FlameAudio.bgm.play('ambient_lab.wav', volume: 0.15);
 
       // Collisions from object layer
       final collisions = _tiled!.tileMap.getLayer<ObjectGroup>('collisions');
@@ -78,10 +85,10 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       addAll([
         DoctorNPC(name: 'Dr. Elena Vega', position: elenaPos, lines: const [
           'Vitals are steady. The fungal lattice is responsive.',
-          'When you are ready, we will proceed — your consent matters.',
+          'When you are ready, we will proceed â€” your consent matters.',
         ], sprite: _labTiles.getSprite(0, 2)), // Dr. Elena sprite
         DoctorNPC(name: 'Dr. Arun Patel', position: arunPos, lines: const [
-          'Welcome. You are safe — take a slow breath.',
+          'Welcome. You are safe â€” take a slow breath.',
           'We are stabilizing the interface to the bio-compute mesh.',
         ], sprite: _labTiles.getSprite(0, 3)), // Dr. Arun sprite
         ConsentConsole(position: consentPos),
@@ -114,10 +121,10 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       addAll([
         DoctorNPC(name: 'Dr. Elena Vega', position: Vector2(160, 40), lines: const [
           'Vitals are steady. The fungal lattice is responsive.',
-          'When you are ready, we will proceed — your consent matters.',
+          'When you are ready, we will proceed â€” your consent matters.',
         ], sprite: _labTiles.getSprite(0, 2)),
         DoctorNPC(name: 'Dr. Arun Patel', position: Vector2(80, 0), lines: const [
-          'Welcome. You are safe — take a slow breath.',
+          'Welcome. You are safe â€” take a slow breath.',
           'We are stabilizing the interface to the bio-compute mesh.',
         ], sprite: _labTiles.getSprite(0, 3)),
         ConsentConsole(position: Vector2(-200, 120)),
@@ -134,6 +141,9 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
 
     // Show HUD overlay
     overlays.add('HUD');
+
+    // Load saved state
+    await Persist.loadInto(gs);
   }
 
   @override
@@ -141,7 +151,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     super.update(dt);
     // Drive player with joystick unless in dialog
     if (!_inDialog) {
-      final delta = _joystick.delta;
+      final delta = _computeInput();
       _player.move(delta, dt);
     }
 
@@ -162,6 +172,38 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       camera.viewfinder.position.x - halfW + joyOffset.x,
       camera.viewfinder.position.y + halfH - joyOffset.y,
     );
+  }
+
+  Vector2 _computeInput() {
+    final d = _joystick.delta.clone();
+    // Keyboard
+    double x = 0, y = 0;
+    if (_keys.contains(LogicalKeyboardKey.keyA) || _keys.contains(LogicalKeyboardKey.arrowLeft)) x -= 1;
+    if (_keys.contains(LogicalKeyboardKey.keyD) || _keys.contains(LogicalKeyboardKey.arrowRight)) x += 1;
+    if (_keys.contains(LogicalKeyboardKey.keyW) || _keys.contains(LogicalKeyboardKey.arrowUp)) y -= 1;
+    if (_keys.contains(LogicalKeyboardKey.keyS) || _keys.contains(LogicalKeyboardKey.arrowDown)) y += 1;
+    if (x != 0 || y != 0) {
+      final k = Vector2(x, y).normalized();
+      d.add(k);
+    }
+    return d;
+  }
+
+  @override
+  KeyEventResult onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
+    _keys
+      ..clear()
+      ..addAll(keysPressed);
+    // Action key: Space/Enter/E trigger action
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.space ||
+          event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.keyE) {
+        onActionPressed();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.handled;
   }
 
   // Called from HUD Action button
@@ -248,11 +290,11 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
   void onConsentChoice(bool consented) {
     _showConsent.value = false;
     if (consented) {
-      objective.value = 'Consent recorded. Calibration starting…';
+      objective.value = 'Consent recorded. Calibration startingâ€¦';
       gs.setConsent(true);
       _startDialog('System', const [
         'Consent acknowledged. Initializing calibration sequence.',
-        'Hold steady � establishing cognitive link to bio-compute lattice.',
+        'Hold steady — establishing cognitive link to bio-compute lattice.',
       ]);
       // Optional: record to in-app journal for later sync
       // (kept internal to avoid importing state here)
@@ -289,9 +331,30 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     }
 
     // Load TMX for the scene
-    final mapPath = scene == 'lab' ? 'maps/lab.tmx' : 'maps/corridor.tmx';
+    String mapPath;
+    switch (scene) {
+      case 'lab':
+        mapPath = 'maps/lab.tmx';
+        break;
+      case 'corridor':
+        mapPath = 'maps/corridor.tmx';
+        break;
+      case 'observation':
+        mapPath = 'maps/observation.tmx';
+        break;
+      default:
+        mapPath = 'maps/lab.tmx';
+    }
     _tiled = await TiledComponent.load(mapPath, Vector2.all(32));
     add(_tiled!);
+    // Ambient per scene
+    if (scene == 'lab' || scene == 'observation' || scene == 'corridor') {
+      if (!FlameAudio.bgm.isPlaying) {
+        FlameAudio.bgm.play('ambient_lab.wav', volume: 0.15);
+      }
+    } else {
+      FlameAudio.bgm.stop();
+    }
 
     // Collisions
     final collisions = _tiled!.tileMap.getLayer<ObjectGroup>('collisions');
@@ -314,12 +377,12 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
           case 'doc_elena':
             add(DoctorNPC(name: 'Dr. Elena Vega', position: v, lines: const [
               'Vitals are steady. The fungal lattice is responsive.',
-              'When you are ready, we will proceed — your consent matters.',
+              'When you are ready, we will proceed â€” your consent matters.',
             ], sprite: _labTiles.getSprite(0, 2)));
             break;
           case 'doc_arun':
             add(DoctorNPC(name: 'Dr. Arun Patel', position: v, lines: const [
-              'Welcome. You are safe — take a slow breath.',
+              'Welcome. You are safe â€” take a slow breath.',
               'We are stabilizing the interface to the bio-compute mesh.',
             ], sprite: _labTiles.getSprite(0, 3)));
             break;
@@ -332,13 +395,26 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
           case 'door_to_lab':
             add(Door(position: v, label: "To Doctors' Lab", targetScene: 'lab', lockedUntilConsent: false));
             break;
+          case 'door_to_observation':
+            add(Door(position: v, label: 'To Observation', targetScene: 'observation', lockedUntilConsent: true));
+            break;
         }
       }
     }
 
     _player.position = playerPos;
     camera.follow(_player);
-    gs.section.value = scene == 'lab' ? "Doctors' Lab" : 'Corridor';
+    switch (scene) {
+      case 'lab':
+        gs.section.value = "Doctors' Lab";
+        break;
+      case 'corridor':
+        gs.section.value = 'Corridor';
+        break;
+      case 'observation':
+        gs.section.value = 'Observation Room';
+        break;
+    }
   }
 }
 
@@ -505,7 +581,7 @@ class ConsentConsole extends PositionComponent implements Inspectable {
   @override
   final List<String> lines = const [
     'Touch to confirm informed consent.',
-    'Logging consent… secure channel engaged.'
+    'Logging consentâ€¦ secure channel engaged.'
   ];
   ConsentConsole({required super.position}) { size = Vector2(60, 44); anchor = Anchor.center; }
   @override
@@ -565,7 +641,7 @@ class GameScreen extends m.StatelessWidget {
   m.Widget build(m.BuildContext context) {
     final game = UC4EGame();
     return m.Scaffold(
-      appBar: m.AppBar(title: const m.Text('UC4ERPG – Play')),
+      appBar: m.AppBar(title: const m.Text('UC4ERPG â€“ Play')),
       body: GameWidget(
         game: game,
         overlayBuilderMap: {
@@ -579,6 +655,11 @@ class GameScreen extends m.StatelessWidget {
 class _HUD extends m.StatelessWidget {
   final UC4EGame game;
   const _HUD({required this.game});
+  String? _portraitFor(String speaker) {
+    if (speaker.contains('Elena')) return 'assets/portraits/dr_elena.png';
+    if (speaker.contains('Arun')) return 'assets/portraits/dr_arun.png';
+    return null;
+  }
   @override
   m.Widget build(m.BuildContext context) {
     return m.Stack(children: [
@@ -667,6 +748,44 @@ class _HUD extends m.StatelessWidget {
           ),
         ),
       ),
+      // Top-right quick actions (Save / Reset)
+      m.Positioned(
+        right: 12,
+        top: 12,
+        child: m.Row(children: [
+          m.IconButton(
+            tooltip: 'Save',
+            onPressed: () async {
+              await Persist.save(game.gs);
+              // Feedback via dialog line without blocking gameplay
+              game._startDialog('System', const ['Progress saved.']);
+            },
+            icon: const m.Icon(m.Icons.save, color: m.Colors.white),
+          ),
+          m.IconButton(
+            tooltip: 'Reset Progress',
+            onPressed: () async {
+              await Persist.reset();
+              game.gs.consentGiven.value = false;
+              game.gs.startSection(
+                chapterName: 'Chapter 1: Arrival',
+                sectionName: "Doctors' Lab",
+                newQuest: Quest(
+                  id: 'arrival_lab_intro',
+                  title: "Meet the Doctors & Consent",
+                  items: [
+                    ObjectiveItem(id: 'talk_elena', text: 'Talk to Dr. Elena Vega'),
+                    ObjectiveItem(id: 'talk_arun', text: 'Talk to Dr. Arun Patel'),
+                    ObjectiveItem(id: 'consent', text: 'Confirm informed consent'),
+                  ],
+                ),
+              );
+              game._startDialog('System', const ['Progress reset.']);
+            },
+            icon: const m.Icon(m.Icons.refresh, color: m.Colors.white),
+          ),
+        ]),
+      ),
       // Top-left hint when near interactables
       m.Positioned(
         left: 12,
@@ -681,7 +800,7 @@ class _HUD extends m.StatelessWidget {
                 color: m.Colors.black.withOpacity(0.55),
                 borderRadius: m.BorderRadius.circular(6),
               ),
-              child: m.Text('A: Interact – ' + value, style: const m.TextStyle(color: m.Colors.white)),
+              child: m.Text('A: Interact — ' + value, style: const m.TextStyle(color: m.Colors.white)),
             );
           },
         ),
@@ -695,6 +814,7 @@ class _HUD extends m.StatelessWidget {
           valueListenable: game.activeLine,
           builder: (context, line, _) {
             if (line == null) return const m.SizedBox.shrink();
+            final portrait = _portraitFor(line.speaker);
             return m.Container(
               padding: const m.EdgeInsets.all(12),
               decoration: m.BoxDecoration(
@@ -702,17 +822,32 @@ class _HUD extends m.StatelessWidget {
                 borderRadius: m.BorderRadius.circular(8),
                 border: m.Border.all(color: m.Colors.white24),
               ),
-              child: m.Column(
-                crossAxisAlignment: m.CrossAxisAlignment.start,
-                mainAxisSize: m.MainAxisSize.min,
-                children: [
-                  m.Text(line.speaker, style: const m.TextStyle(color: m.Colors.amber, fontWeight: m.FontWeight.bold)),
-                  const m.SizedBox(height: 6),
-                  m.Text(line.text, style: const m.TextStyle(color: m.Colors.white)),
-                  const m.SizedBox(height: 6),
-                  const m.Text('Tap Action to continue', style: m.TextStyle(color: m.Colors.white54, fontSize: 12)),
-                ],
-              ),
+              child: m.Row(crossAxisAlignment: m.CrossAxisAlignment.start, children: [
+                if (portrait != null)
+                  m.Container(
+                    width: 64,
+                    height: 64,
+                    margin: const m.EdgeInsets.only(right: 12),
+                    decoration: m.BoxDecoration(
+                      borderRadius: m.BorderRadius.circular(6),
+                      border: m.Border.all(color: m.Colors.white24),
+                      image: m.DecorationImage(image: m.AssetImage(portrait), fit: m.BoxFit.cover),
+                    ),
+                  ),
+                m.Expanded(
+                  child: m.Column(
+                    crossAxisAlignment: m.CrossAxisAlignment.start,
+                    mainAxisSize: m.MainAxisSize.min,
+                    children: [
+                      m.Text(line.speaker, style: const m.TextStyle(color: m.Colors.amber, fontWeight: m.FontWeight.bold)),
+                      const m.SizedBox(height: 6),
+                      m.Text(line.text, style: const m.TextStyle(color: m.Colors.white)),
+                      const m.SizedBox(height: 6),
+                      const m.Text('Tap Action to continue', style: m.TextStyle(color: m.Colors.white54, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ]),
             );
           },
         ),
@@ -733,5 +868,7 @@ class _HUD extends m.StatelessWidget {
     ]);
   }
 }
+
+
 
 

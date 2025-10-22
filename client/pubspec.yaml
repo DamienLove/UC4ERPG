@@ -11,6 +11,8 @@ dependencies:
   supabase_flutter: ^2.5.6
   flame: ^1.16.0
   flame_tiled: ^1.20.0
+  flame_audio: ^2.1.6
+  shared_preferences: ^2.2.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -22,3 +24,5 @@ flutter:
     - assets/tilesets/
     - assets/tiles/
     - assets/image/tilesets/
+    - assets/portraits/
+    - assets/audio/
