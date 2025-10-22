@@ -20,7 +20,23 @@ class JournalSyncService {
   static Future<List<String>> pullAll() async {
     await SupabaseSync.ensureInitialized();
     final client = SupabaseSync.client;
-    final data = await client.from(table).select<List<Map<String, dynamic>>>('*').order('created_at');
-    return data.map((e) => (e['text'] as String?) ?? '').where((s) => s.isNotEmpty).toList();
+    final data = await client.from(table).select('*').order('created_at');
+    final list = (data as List)
+        .map((e) => (e['text'] as String?) ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList();
+    return list;
+  }
+
+  static Future<int> pullAndMerge() async {
+    final remote = await pullAll();
+    var added = 0;
+    for (final e in remote) {
+      if (!JournalStore.instance.entries.contains(e)) {
+        JournalStore.instance.addEntry(e);
+        added++;
+      }
+    }
+    return added;
   }
 }
