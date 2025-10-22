@@ -13,7 +13,6 @@ class SupabaseSync {
     await Supabase.initialize(
       url: AppConfig.supabaseUrl,
       anonKey: AppConfig.supabaseAnonKey,
-      authFlowType: AuthFlowType.pkce,
     );
     // Anonymous sign-in for MVP
     await client.auth.signInAnonymously();
