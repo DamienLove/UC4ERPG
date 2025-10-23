@@ -7,14 +7,14 @@ import 'package:flame/collisions.dart';
 import 'package:flame/sprite.dart';
 import 'package:flame_tiled/flame_tiled.dart';
 import 'package:flame_audio/flame_audio.dart';
-import 'package:flame/events.dart';
 import 'package:flutter/material.dart' as m;
 import 'package:flutter/foundation.dart' as f show ValueNotifier;
+import 'package:flutter/services.dart' show LogicalKeyboardKey, RawKeyboard;
 import 'dart:math' as math;
 import 'state.dart';
 import 'persist.dart';
 
-class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
+class UC4EGame extends FlameGame with HasCollisionDetection {
   late final JoystickComponent _joystick;
   late final Player _player;
   late final SpriteSheet _labTiles;
@@ -29,22 +29,37 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
   final Set<String> _spokenTo = {};
   final f.ValueNotifier<bool> _showConsent = f.ValueNotifier<bool>(false);
   final f.ValueNotifier<String> objective = f.ValueNotifier<String>('Objective: Speak with the doctors.');
-  final Set<LogicalKeyboardKey> _keys = <LogicalKeyboardKey>{};
+  final f.ValueNotifier<bool> _showPause = f.ValueNotifier<bool>(false);
+  final f.ValueNotifier<_Choice?> _choice = f.ValueNotifier<_Choice?>(null);
+  bool _audioMuted = false;
+  bool _actionDownPrev = false;
+  bool _pauseDownPrev = false;
+  bool _attackDownPrev = false;
+  // Simple health + attack state
+  final f.ValueNotifier<int> _hp = f.ValueNotifier<int>(5);
+  int _maxHp = 5;
+  double _attackCooldown = 0.0;
+  double _invuln = 0.0;
 
   @override
   Future<void> onLoad() async {
     // Normalize Flame image prefix so asset keys start with 'assets/'
     images.prefix = 'assets/';
-    // Load tileset
+    // Fix camera scale for web so things aren't zoomed
+    try {
+      camera.viewfinder.zoom = 1.0;
+    } catch (_) {}
+    // Load tileset (for sprites) and try TMX; fallback to procedural scene on any error
     final labTilesImage = await images.load('tilesets/lab_tiles.png');
     _labTiles = SpriteSheet(image: labTilesImage, srcSize: Vector2.all(32));
-
     try {
       _tiled = await TiledComponent.load('maps/lab.tmx', Vector2.all(32));
       add(_tiled!);
       // Ambient
-      FlameAudio.bgm.initialize();
-      FlameAudio.bgm.play('ambient_lab.wav', volume: 0.15);
+      try {
+        FlameAudio.bgm.initialize();
+        FlameAudio.bgm.play('ambient_lab.wav', volume: 0.15);
+      } catch (_) {}
 
       // Collisions from object layer
       final collisions = _tiled!.tileMap.getLayer<ObjectGroup>('collisions');
@@ -64,46 +79,72 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
         for (final o in spawns.objects) {
           final v = Vector2(o.x + (o.width / 2), o.y + (o.height / 2));
           switch (o.name) {
-            case 'player': playerPos = v; break;
-            case 'doc_elena': elenaPos = v; break;
-            case 'doc_arun': arunPos = v; break;
-            case 'consent_console': consentPos = v; break;
+            case 'player':
+              playerPos = v;
+              break;
+            case 'doc_elena':
+              elenaPos = v;
+              break;
+            case 'doc_arun':
+              arunPos = v;
+              break;
+            case 'consent_console':
+              consentPos = v;
+              break;
             case 'door_to_corridor':
               add(Door(position: v, label: 'To Corridor', targetScene: 'corridor', lockedUntilConsent: true));
+              break;
+            case 'enemy_drone':
+              add(Drone(position: v));
               break;
           }
         }
       }
+      // If no enemies placed in TMX, add a default one
+      if (!children.any((c) => c is Drone)) {
+        add(Drone(position: Vector2(playerPos.x + 120, playerPos.y + 40)));
+      }
 
       // Player + camera
-      // NOTE: Using placeholder sprites, change getSprite(row, col) to match your tileset
-      _player = Player(position: playerPos, sprite: _labTiles.getSprite(0, 1)); // Player sprite
+      _player = Player(position: playerPos);
       add(_player);
       camera.follow(_player);
 
       // Doctors and console
       addAll([
-        DoctorNPC(name: 'Dr. Elena Vega', position: elenaPos, lines: const [
-          'Vitals are steady. The fungal lattice is responsive.',
-          'When you are ready, we will proceed â€” your consent matters.',
-        ], sprite: _labTiles.getSprite(0, 2)), // Dr. Elena sprite
-        DoctorNPC(name: 'Dr. Arun Patel', position: arunPos, lines: const [
-          'Welcome. You are safe â€” take a slow breath.',
-          'We are stabilizing the interface to the bio-compute mesh.',
-        ], sprite: _labTiles.getSprite(0, 3)), // Dr. Arun sprite
+        DoctorNPC(
+            name: 'Dr. Elena Vega',
+            position: elenaPos,
+            lines: const [
+              'Vitals are steady. The fungal lattice is responsive.',
+              'When you are ready, we will proceed - your consent matters.',
+            ],
+            sprite: _labTiles.getSprite(0, 2)),
+        DoctorNPC(
+            name: 'Dr. Arun Patel',
+            position: arunPos,
+            lines: const [
+              'Welcome. You are safe - take a slow breath.',
+              'We are stabilizing the interface to the bio-compute mesh.',
+            ],
+            sprite: _labTiles.getSprite(0, 3)),
         ConsentConsole(position: consentPos),
       ]);
+      // Add a few decorative props for visual richness
+      addAll([
+        HologramPanel(position: elenaPos + Vector2(120, -120), size: Vector2(180, 100)),
+        FungusVat(position: arunPos + Vector2(-160, 60)),
+        BioRack(position: consentPos + Vector2(160, -60)),
+      ]);
     } catch (_) {
-      // Fallback background
+      // Procedural fallback: background, walls, props, player, doctors
       add(Background());
-      // Fallback room bounds
       addAll([
         Wall(rect: const Rect.fromLTWH(-500, -300, 1000, 20)),
         Wall(rect: const Rect.fromLTWH(-500, 280, 1000, 20)),
         Wall(rect: const Rect.fromLTWH(-500, -300, 20, 600)),
         Wall(rect: const Rect.fromLTWH(480, -300, 20, 600)),
       ]);
-      // Fallback props
       addAll([
         HologramPanel(position: Vector2(-320, -180), size: Vector2(180, 100)),
         HologramPanel(position: Vector2(-120, -180), size: Vector2(180, 100)),
@@ -113,21 +154,20 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
         FungusVat(position: Vector2(220, 30)),
         BioRack(position: Vector2(-40, 120)),
       ]);
-      // Fallback player + camera
-      _player = Player(position: Vector2(-200, 0), sprite: _labTiles.getSprite(0, 1));
+      _player = Player(position: Vector2(-200, 0));
       add(_player);
       camera.follow(_player);
-      // Fallback doctors and console
       addAll([
         DoctorNPC(name: 'Dr. Elena Vega', position: Vector2(160, 40), lines: const [
           'Vitals are steady. The fungal lattice is responsive.',
-          'When you are ready, we will proceed â€” your consent matters.',
+          'When you are ready, we will proceed - your consent matters.',
         ], sprite: _labTiles.getSprite(0, 2)),
         DoctorNPC(name: 'Dr. Arun Patel', position: Vector2(80, 0), lines: const [
-          'Welcome. You are safe â€” take a slow breath.',
+          'Welcome. You are safe - take a slow breath.',
           'We are stabilizing the interface to the bio-compute mesh.',
         ], sprite: _labTiles.getSprite(0, 3)),
         ConsentConsole(position: Vector2(-200, 120)),
+        Drone(position: Vector2(-60, -40)),
       ]);
     }
 
@@ -152,7 +192,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
     // Drive player with joystick unless in dialog
     if (!_inDialog) {
       final delta = _computeInput();
-      _player.move(delta, dt);
+      _player.moveWithCollision(delta, dt, children.whereType<Wall>());
     }
 
     // Update interact hint
@@ -172,38 +212,56 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
       camera.viewfinder.position.x - halfW + joyOffset.x,
       camera.viewfinder.position.y + halfH - joyOffset.y,
     );
+    // Cooldowns
+    if (_attackCooldown > 0) {
+      _attackCooldown = math.max(0, _attackCooldown - dt);
+    }
+    if (_invuln > 0) _invuln = math.max(0, _invuln - dt);
+
+    // Enemy contact damage
+    for (final d in children.whereType<Drone>()) {
+      final dist = d.position.distanceTo(_player.position);
+      if (dist < 20 && _invuln <= 0) {
+        _applyDamage(1, (_player.position - d.position).normalized() * 40);
+        break;
+      }
+    }
   }
 
   Vector2 _computeInput() {
     final d = _joystick.delta.clone();
-    // Keyboard
+    // Keyboard (RawKeyboard for broad SDK compatibility)
+    final pressed = RawKeyboard.instance.keysPressed;
     double x = 0, y = 0;
-    if (_keys.contains(LogicalKeyboardKey.keyA) || _keys.contains(LogicalKeyboardKey.arrowLeft)) x -= 1;
-    if (_keys.contains(LogicalKeyboardKey.keyD) || _keys.contains(LogicalKeyboardKey.arrowRight)) x += 1;
-    if (_keys.contains(LogicalKeyboardKey.keyW) || _keys.contains(LogicalKeyboardKey.arrowUp)) y -= 1;
-    if (_keys.contains(LogicalKeyboardKey.keyS) || _keys.contains(LogicalKeyboardKey.arrowDown)) y += 1;
+    if (pressed.contains(LogicalKeyboardKey.keyA) || pressed.contains(LogicalKeyboardKey.arrowLeft)) x -= 1;
+    if (pressed.contains(LogicalKeyboardKey.keyD) || pressed.contains(LogicalKeyboardKey.arrowRight)) x += 1;
+    if (pressed.contains(LogicalKeyboardKey.keyW) || pressed.contains(LogicalKeyboardKey.arrowUp)) y -= 1;
+    if (pressed.contains(LogicalKeyboardKey.keyS) || pressed.contains(LogicalKeyboardKey.arrowDown)) y += 1;
     if (x != 0 || y != 0) {
       final k = Vector2(x, y).normalized();
       d.add(k);
     }
-    return d;
-  }
-
-  @override
-  KeyEventResult onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
-    _keys
-      ..clear()
-      ..addAll(keysPressed);
-    // Action key: Space/Enter/E trigger action
-    if (event is KeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.space ||
-          event.logicalKey == LogicalKeyboardKey.enter ||
-          event.logicalKey == LogicalKeyboardKey.keyE) {
-        onActionPressed();
-        return KeyEventResult.handled;
-      }
+    // Trigger action on Space/Enter/E (simple polling; can debounce later)
+    final actionDown = pressed.contains(LogicalKeyboardKey.space) ||
+        pressed.contains(LogicalKeyboardKey.enter) ||
+        pressed.contains(LogicalKeyboardKey.keyE);
+    if (actionDown && !_actionDownPrev) {
+      onActionPressed();
     }
-    return KeyEventResult.handled;
+    _actionDownPrev = actionDown;
+    // Pause toggle on Escape
+    final pauseDown = pressed.contains(LogicalKeyboardKey.escape);
+    if (pauseDown && !_pauseDownPrev) {
+      _showPause.value = !_showPause.value;
+    }
+    _pauseDownPrev = pauseDown;
+    // Attack on B key
+    final attackDown = pressed.contains(LogicalKeyboardKey.keyB);
+    if (attackDown && !_attackDownPrev) {
+      onAttackPressed();
+    }
+    _attackDownPrev = attackDown;
+    return d;
   }
 
   // Called from HUD Action button
@@ -218,7 +276,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
       final kind = nearest.$1;
       if (kind is DoctorNPC) {
         _markSpoken(kind.name);
-        _startDialog(kind.name, kind.lines);
+        _presentDoctorChoice(kind.name);
       } else if (kind is Inspectable) {
         if (kind is ConsentConsole) {
           if (_spokenTo.contains('Dr. Elena Vega') && _spokenTo.contains('Dr. Arun Patel')) {
@@ -238,6 +296,14 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
     }
   }
 
+  // Called from HUD Attack button (B)
+  void onAttackPressed() {
+    if (_inDialog) return;
+    if (_attackCooldown > 0) return;
+    _attackCooldown = 0.6; // seconds
+    add(Pulse(origin: _player.position.clone(), maxRadius: 96, duration: 0.25));
+  }
+
   // returns (component, label)
   (Object, String)? _nearestInteractable() {
     Object? nearest;
@@ -246,14 +312,22 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
     for (final c in children) {
       if (c is DoctorNPC) {
         final d = _player.position.distanceTo(c.position);
-        if (d < best) { best = d; nearest = c; label = c.name; }
+        if (d < best) {
+          best = d;
+          nearest = c;
+          label = c.name;
+        }
       } else if (c is Inspectable) {
         final d = _player.position.distanceTo(c.position);
-        if (d < best) { best = d; nearest = c; label = c.label; }
+        if (d < best) {
+          best = d;
+          nearest = c;
+          label = c.label;
+        }
       }
     }
     if (nearest == null || label == null) return null;
-    return (nearest!, label!);
+    return (nearest, label);
   }
 
   void _startDialog(String speaker, List<String> lines) {
@@ -290,7 +364,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
   void onConsentChoice(bool consented) {
     _showConsent.value = false;
     if (consented) {
-      objective.value = 'Consent recorded. Calibration startingâ€¦';
+      objective.value = 'Consent recorded. Calibration starting…';
       gs.setConsent(true);
       _startDialog('System', const [
         'Consent acknowledged. Initializing calibration sequence.',
@@ -305,7 +379,15 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
       objective.value = 'Objective: Speak with Dr. Vega/Dr. Patel or consent when ready.';
     }
   }
-  
+
+  void _applyDamage(int dmg, Vector2 knockback) {
+    if (_hp.value <= 0) return;
+    _hp.value = math.max(0, _hp.value - dmg);
+    _player.position += knockback;
+    _invuln = 1.2;
+    // TODO: show flash or dialog when hp hits 0
+  }
+
   void _tryTransition(Door door) {
     if (door.lockedUntilConsent && !gs.consentGiven.value) {
       _startDialog('Door', const ['Locked. Consent required to proceed.']);
@@ -314,18 +396,107 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
     _loadScene(door.targetScene);
   }
 
+  void _presentDoctorChoice(String name) {
+    if (name.contains('Elena')) {
+      _choice.value = _Choice(
+        title: 'Dr. Elena Vega',
+        options: [
+          _ChoiceOpt(id: 'elena_lattice', label: 'What is the lattice?'),
+          _ChoiceOpt(id: 'elena_ready', label: 'Am I ready to proceed?'),
+          _ChoiceOpt(id: 'elena_calibration', label: 'What is calibration?'),
+          _ChoiceOpt(id: 'elena_consent', label: 'What does consent cover?'),
+        ],
+      );
+    } else if (name.contains('Arun')) {
+      _choice.value = _Choice(
+        title: 'Dr. Arun Patel',
+        options: [
+          _ChoiceOpt(id: 'arun_feel', label: 'How will it feel?'),
+          _ChoiceOpt(id: 'arun_wait', label: 'I need a moment.'),
+          _ChoiceOpt(id: 'arun_monitor', label: 'What will you monitor?'),
+          _ChoiceOpt(id: 'arun_controls', label: 'Can I stop at any time?'),
+        ],
+      );
+    } else {
+      _startDialog(name, const ['Hello.']);
+    }
+  }
+
+  void _onChoice(String id) {
+    _choice.value = null;
+    switch (id) {
+      case 'elena_lattice':
+        gs.learn('elena_lattice');
+        _startDialog('Dr. Elena Vega', const [
+          'A living network of fungal mycelia acting as a bio-compute mesh.',
+          'It adapts to you as much as you adapt to it.',
+        ]);
+        break;
+      case 'elena_ready':
+        gs.learn('elena_ready');
+        _startDialog('Dr. Elena Vega', const [
+          'Your vitals are stable and responses within safe thresholds.',
+          'When you are ready, confirm consent at the console.',
+        ]);
+        break;
+      case 'elena_calibration':
+        gs.learn('elena_calibration');
+        _startDialog('Dr. Elena Vega', const [
+          'Calibration aligns your neural patterns with the lattice feedback.',
+          'It improves clarity and reduces cognitive load during sessions.',
+        ]);
+        break;
+      case 'elena_consent':
+        gs.learn('elena_consent');
+        _startDialog('Dr. Elena Vega', const [
+          'Scope: data collection, monitoring, and guided interaction with the lattice.',
+          'You can revoke consent at any time; we will disengage safely.',
+        ]);
+        break;
+      case 'arun_feel':
+        gs.learn('arun_feel');
+        _startDialog('Dr. Arun Patel', const [
+          'A slight pressure behind the eyes, followed by clarity.',
+          'Focus on your breath. We will monitor continuously.',
+        ]);
+        break;
+      case 'arun_wait':
+        gs.learn('arun_wait');
+        _startDialog('Dr. Arun Patel', const [
+          'Take the time you need. Speak to us if anything feels off.',
+        ]);
+        break;
+      case 'arun_monitor':
+        gs.learn('arun_monitor');
+        _startDialog('Dr. Arun Patel', const [
+          'EEG, heart rate variability, and ocular micro-saccades.',
+          'We also track subjective comfort; your feedback matters.',
+        ]);
+        break;
+      case 'arun_controls':
+        gs.learn('arun_controls');
+        _startDialog('Dr. Arun Patel', const [
+          'Yes. Say "Stop" or open the pause menu and select Reset.',
+          'We will immediately disengage and stabilize the interface.',
+        ]);
+        break;
+    }
+  }
+
   Future<void> _loadScene(String scene) async {
     // Remove previous scene components (map, props, NPCs, doors, walls)
-    final toRemove = children.where((c) =>
-        c is TiledComponent ||
-        c is Wall ||
-        c is DoctorNPC ||
-        c is HologramPanel ||
-        c is ConsoleStation ||
-        c is FungusVat ||
-        c is BioRack ||
-        c is ConsentConsole ||
-        c is Door).toList();
+    final toRemove = children
+        .where((c) =>
+            c is TiledComponent ||
+            c is Wall ||
+            c is DoctorNPC ||
+            c is HologramPanel ||
+            c is ConsoleStation ||
+            c is FungusVat ||
+            c is BioRack ||
+            c is ConsentConsole ||
+            c is Door)
+        .toList();
     for (final c in toRemove) {
       c.removeFromParent();
     }
@@ -375,16 +546,24 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
             playerPos = v;
             break;
           case 'doc_elena':
-            add(DoctorNPC(name: 'Dr. Elena Vega', position: v, lines: const [
-              'Vitals are steady. The fungal lattice is responsive.',
-              'When you are ready, we will proceed â€” your consent matters.',
-            ], sprite: _labTiles.getSprite(0, 2)));
+            add(DoctorNPC(
+                name: 'Dr. Elena Vega',
+                position: v,
+                lines: const [
+                  'Vitals are steady. The fungal lattice is responsive.',
+                  'When you are ready, we will proceed — your consent matters.',
+                ],
+                sprite: _labTiles.getSprite(0, 2)));
             break;
           case 'doc_arun':
-            add(DoctorNPC(name: 'Dr. Arun Patel', position: v, lines: const [
-              'Welcome. You are safe â€” take a slow breath.',
-              'We are stabilizing the interface to the bio-compute mesh.',
-            ], sprite: _labTiles.getSprite(0, 3)));
+            add(DoctorNPC(
+                name: 'Dr. Arun Patel',
+                position: v,
+                lines: const [
+                  'Welcome. You are safe — take a slow breath.',
+                  'We are stabilizing the interface to the bio-compute mesh.',
+                ],
+                sprite: _labTiles.getSprite(0, 3)));
             break;
           case 'consent_console':
             add(ConsentConsole(position: v));
@@ -398,8 +577,15 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
           case 'door_to_observation':
             add(Door(position: v, label: 'To Observation', targetScene: 'observation', lockedUntilConsent: true));
             break;
+          case 'enemy_drone':
+            add(Drone(position: v));
+            break;
         }
       }
+    }
+    // Fallback: ensure at least one enemy per scene
+    if (!children.any((c) => c is Drone)) {
+      add(Drone(position: playerPos + Vector2(140, -20)));
     }
 
     _player.position = playerPos;
@@ -454,11 +640,11 @@ class Wall extends PositionComponent with CollisionCallbacks {
   }
 }
 
-class Player extends SpriteComponent with CollisionCallbacks {
+class Player extends PositionComponent with CollisionCallbacks {
   final double speed = 220; // units per second
 
-  Player({required Vector2 position, required Sprite sprite})
-      : super(sprite: sprite, position: position) {
+  Player({required Vector2 position}) {
+    this.position = position;
     size = Vector2.all(40);
     anchor = Anchor.center;
   }
@@ -468,11 +654,43 @@ class Player extends SpriteComponent with CollisionCallbacks {
     add(RectangleHitbox());
   }
 
-  void move(Vector2 input, double dt) {
+  void moveWithCollision(Vector2 input, double dt, Iterable<Wall> walls) {
     if (input.length2 == 0) return;
     final dir = input.normalized();
-    final next = position + dir * speed * dt;
+    var next = position + dir * speed * dt;
+    // simple AABB against walls; move X then Y
+    final half = size / 2;
+    // X
+    var cand = Vector2(next.x, position.y);
+    if (_collides(cand, half, walls)) {
+      cand.x = position.x; // cancel X
+    }
+    // Y
+    next = Vector2(cand.x, next.y);
+    if (_collides(next, half, walls)) {
+      next.y = position.y; // cancel Y
+    }
     position = next;
+  }
+
+  bool _collides(Vector2 center, Vector2 half, Iterable<Wall> walls) {
+    final r = Rect.fromLTWH(center.x - half.x, center.y - half.y, size.x, size.y);
+    for (final w in walls) {
+      final wr = Rect.fromLTWH(w.position.x, w.position.y, w.size.x, w.size.y);
+      if (r.overlaps(wr)) return true;
+    }
+    return false;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final body = Paint()..color = m.Colors.cyanAccent;
+    final border = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..color = m.Colors.blueGrey.shade900;
+    canvas.drawCircle(Offset.zero, size.x * 0.42, body);
+    canvas.drawCircle(Offset.zero, size.x * 0.42, border);
   }
 }
 
@@ -491,9 +709,14 @@ class HologramPanel extends PositionComponent implements Inspectable {
     'Touchless input detected. Displaying neural telemetry.'
   ];
   double _t = 0;
-  HologramPanel({required super.position, required super.size}) { anchor = Anchor.topLeft; }
+  HologramPanel({required super.position, required super.size}) {
+    anchor = Anchor.topLeft;
+  }
   @override
-  void update(double dt) { _t += dt; }
+  void update(double dt) {
+    _t += dt;
+  }
+
   @override
   void render(Canvas canvas) {
     final base = Paint()..color = m.Colors.cyanAccent.withOpacity(0.18 + 0.12 * (0.5 + 0.5 * math.sin(_t * 2)));
@@ -521,7 +744,10 @@ class ConsoleStation extends PositionComponent implements Inspectable {
     'Authentication accepted. Research log loaded.',
     'Fungal lattice pathways recalibrated for bio-computation.'
   ];
-  ConsoleStation({required super.position}) { size = Vector2(48, 36); anchor = Anchor.center; }
+  ConsoleStation({required super.position}) {
+    size = Vector2(48, 36);
+    anchor = Anchor.center;
+  }
   @override
   void render(Canvas canvas) {
     final base = Paint()..color = m.Colors.blueGrey.shade800;
@@ -541,9 +767,12 @@ class FungusVat extends PositionComponent implements Inspectable {
     'Suspended mycelial network in nutrient gel.',
     'Cognitive throughput nominal; preparing query channel.'
   ];
-  FungusVat({required super.position}) { size = Vector2(64, 96); anchor = Anchor.center; }
+  FungusVat({required super.position}) {
+    size = Vector2(64, 96);
+    anchor = Anchor.center;
+  }
   @override
-  void render(Canvas canvas) {.
+  void render(Canvas canvas) {
     final glass = Paint()..color = m.Colors.greenAccent.withOpacity(0.28);
     canvas.drawRRect(RRect.fromRectAndRadius(size.toRect(), const Radius.circular(12)), glass);
     final liquid = Paint()..color = m.Colors.greenAccent.withOpacity(0.45);
@@ -563,7 +792,10 @@ class BioRack extends PositionComponent implements Inspectable {
   final List<String> lines = const [
     'Cultures indexed. Access constrained to principal investigators.',
   ];
-  BioRack({required super.position}) { size = Vector2(120, 32); anchor = Anchor.center; }
+  BioRack({required super.position}) {
+    size = Vector2(120, 32);
+    anchor = Anchor.center;
+  }
   @override
   void render(Canvas canvas) {
     final shelf = Paint()..color = m.Colors.blueGrey.shade700;
@@ -581,9 +813,12 @@ class ConsentConsole extends PositionComponent implements Inspectable {
   @override
   final List<String> lines = const [
     'Touch to confirm informed consent.',
-    'Logging consentâ€¦ secure channel engaged.'
+    'Logging consent… secure channel engaged.'
   ];
-  ConsentConsole({required super.position}) { size = Vector2(60, 44); anchor = Anchor.center; }
+  ConsentConsole({required super.position}) {
+    size = Vector2(60, 44);
+    anchor = Anchor.center;
+  }
   @override
   void render(Canvas canvas) {
     final base = Paint()..color = m.Colors.blueGrey.shade800;
@@ -591,7 +826,7 @@ class ConsentConsole extends PositionComponent implements Inspectable {
     final screen = Paint()..color = m.Colors.tealAccent.withOpacity(0.85);
     canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(6, 6, size.x - 12, size.y - 16), const Radius.circular(6)), screen);
     final btn = Paint()..color = m.Colors.greenAccent;
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(size.x/2 - 10, size.y - 14, 20, 8), const Radius.circular(3)), btn);
+    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(size.x / 2 - 10, size.y - 14, 20, 8), const Radius.circular(3)), btn);
   }
 }
 
@@ -629,10 +864,119 @@ class DoctorNPC extends SpriteComponent {
   }
 }
 
+class Drone extends PositionComponent with CollisionCallbacks {
+  int hp = 3;
+  final double speed = 60;
+  Vector2 _vel = Vector2.zero();
+  double _t = 0;
+  Drone({required Vector2 position}) {
+    this.position = position;
+    size = Vector2(28, 28);
+    anchor = Anchor.center;
+  }
+  @override
+  Future<void> onLoad() async {
+    add(RectangleHitbox());
+  }
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _t += dt;
+    final game = findGame() as UC4EGame?;
+    if (game != null) {
+      final toPlayer = game._player.position - position;
+      final dist = toPlayer.length;
+      if (dist < 180) {
+        _vel = toPlayer.normalized() * speed;
+      } else {
+        final ang = _t + (hashCode % 100) * 0.01;
+        _vel = Vector2(math.cos(ang), math.sin(ang)) * (speed * 0.5);
+      }
+    }
+    position += _vel * dt;
+    if (hp <= 0) removeFromParent();
+  }
+  void applyDamage(int dmg, Vector2 knockback) {
+    hp -= dmg;
+    position += knockback;
+  }
+  @override
+  void render(Canvas canvas) {
+    final body = Paint()..color = m.Colors.deepPurpleAccent;
+    canvas.drawRRect(RRect.fromRectAndRadius(size.toRect(), const Radius.circular(6)), body);
+    final eye = Paint()..color = m.Colors.white;
+    canvas.drawCircle(Offset(size.x / 2, size.y / 2), 3, eye);
+  }
+}
+
+class Pulse extends PositionComponent {
+  final Vector2 origin;
+  final double maxRadius;
+  final double duration;
+  double _time = 0;
+  final Set<Drone> _hit = <Drone>{};
+  Pulse({required this.origin, required this.maxRadius, required this.duration}) {
+    position = origin.clone();
+    size = Vector2.zero();
+    anchor = Anchor.center;
+    priority = 50;
+  }
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _time += dt;
+    if (_time >= duration) {
+      removeFromParent();
+      return;
+    }
+    final r = (_time / duration) * maxRadius;
+    size = Vector2.all(r * 2);
+    final game = findGame() as UC4EGame?;
+    if (game != null) {
+      for (final c in game.children.whereType<Drone>()) {
+        if (_hit.contains(c)) continue;
+        final d = c.position.distanceTo(origin);
+        if (d <= r) {
+          final kb = (c.position - origin).normalized() * 24;
+          c.applyDamage(1, kb);
+          _hit.add(c);
+        }
+      }
+    }
+  }
+  @override
+  void render(Canvas canvas) {
+    final r = size.x / 2;
+    final glow = Paint()
+      ..color = m.Colors.tealAccent.withOpacity(0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 8);
+    canvas.drawCircle(Offset.zero, r, glow);
+    final ring = Paint()
+      ..color = m.Colors.tealAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawCircle(Offset.zero, r, ring);
+  }
+}
+
 class _DialogLine {
   final String speaker;
   final String text;
   _DialogLine({required this.speaker, required this.text});
+}
+
+class _ChoiceOpt {
+  final String id;
+  final String label;
+  _ChoiceOpt({required this.id, required this.label});
+}
+
+class _Choice {
+  final String title;
+  final List<_ChoiceOpt> options;
+  _Choice({required this.title, required this.options});
 }
 
 class GameScreen extends m.StatelessWidget {
@@ -641,7 +985,7 @@ class GameScreen extends m.StatelessWidget {
   m.Widget build(m.BuildContext context) {
     final game = UC4EGame();
     return m.Scaffold(
-      appBar: m.AppBar(title: const m.Text('UC4ERPG â€“ Play')),
+      appBar: m.AppBar(title: const m.Text('UC4ERPG – Play')),
       body: GameWidget(
         game: game,
         overlayBuilderMap: {
@@ -660,9 +1004,37 @@ class _HUD extends m.StatelessWidget {
     if (speaker.contains('Arun')) return 'assets/portraits/dr_arun.png';
     return null;
   }
+
   @override
   m.Widget build(m.BuildContext context) {
     return m.Stack(children: [
+      // Hearts (top-right)
+      m.Positioned(
+        right: 12,
+        top: 10,
+        child: m.ValueListenableBuilder<int>(
+          valueListenable: game._hp,
+          builder: (context, hp, _) {
+            final hearts = <m.Widget>[];
+            for (var i = 0; i < game._maxHp; i++) {
+              final filled = i < hp;
+              hearts.add(m.Icon(
+                filled ? m.Icons.favorite : m.Icons.favorite_border,
+                color: filled ? m.Colors.redAccent : m.Colors.white30,
+                size: 18,
+              ));
+            }
+            return m.Container(
+              padding: const m.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: m.BoxDecoration(
+                color: m.Colors.black.withOpacity(0.45),
+                borderRadius: m.BorderRadius.circular(8),
+              ),
+              child: m.Row(mainAxisSize: m.MainAxisSize.min, children: hearts),
+            );
+          },
+        ),
+      ),
       // Consent choice overlay
       m.ValueListenableBuilder<bool>(
         valueListenable: game._showConsent,
@@ -700,6 +1072,43 @@ class _HUD extends m.StatelessWidget {
           );
         },
       ),
+      // Doctor choice overlay
+      m.ValueListenableBuilder<_Choice?>(
+        valueListenable: game._choice,
+        builder: (context, choice, _) {
+          if (choice == null) return const m.SizedBox.shrink();
+          return m.Container(
+            color: m.Colors.black.withOpacity(0.55),
+            alignment: m.Alignment.center,
+            child: m.Container(
+              padding: const m.EdgeInsets.all(16),
+              decoration: m.BoxDecoration(
+                color: m.Colors.grey.shade900,
+                borderRadius: m.BorderRadius.circular(12),
+                border: m.Border.all(color: m.Colors.white24),
+              ),
+              width: 360,
+              child: m.Column(
+                mainAxisSize: m.MainAxisSize.min,
+                crossAxisAlignment: m.CrossAxisAlignment.stretch,
+                children: [
+                  m.Text(choice.title, style: const m.TextStyle(fontSize: 18, fontWeight: m.FontWeight.bold)),
+                  const m.SizedBox(height: 8),
+                  for (final opt in choice.options)
+                    m.Padding(
+                      padding: const m.EdgeInsets.only(top: 8),
+                      child: m.ElevatedButton(
+                        onPressed: () => game._onChoice(opt.id),
+                        child: m.Text(opt.label),
+                      ),
+                    ),
+                  m.TextButton(onPressed: () => game._choice.value = null, child: const m.Text('Close')),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
       // Chapter / Section / Objectives (top center)
       m.Positioned(
         top: 10,
@@ -717,7 +1126,8 @@ class _HUD extends m.StatelessWidget {
               children: [
                 m.ValueListenableBuilder<String>(
                   valueListenable: game.gs.chapter,
-                  builder: (context, ch, _) => m.Text(ch, style: const m.TextStyle(color: m.Colors.white, fontWeight: m.FontWeight.bold)),
+                  builder: (context, ch, _) =>
+                      m.Text(ch, style: const m.TextStyle(color: m.Colors.white, fontWeight: m.FontWeight.bold)),
                 ),
                 m.ValueListenableBuilder<String>(
                   valueListenable: game.gs.section,
@@ -734,11 +1144,45 @@ class _HUD extends m.StatelessWidget {
                           m.Row(
                             mainAxisSize: m.MainAxisSize.min,
                             children: [
-                              m.Icon(item.complete ? m.Icons.check_circle : m.Icons.radio_button_unchecked, size: 16, color: item.complete ? m.Colors.greenAccent : m.Colors.white38),
+                              m.Icon(item.complete ? m.Icons.check_circle : m.Icons.radio_button_unchecked,
+                                  size: 16, color: item.complete ? m.Colors.greenAccent : m.Colors.white38),
                               const m.SizedBox(width: 6),
                               m.Text(item.text, style: const m.TextStyle(color: m.Colors.white)),
                             ],
-                          )
+                          ),
+                        const m.SizedBox(height: 6),
+                        m.ValueListenableBuilder<Set<String>>(
+                          valueListenable: game.gs.knowledge,
+                          builder: (context, known, _) {
+                            final topics = <Map<String, String>>[
+                              {'id': 'elena_lattice', 'label': 'What is the lattice?'},
+                              {'id': 'elena_ready', 'label': 'Am I ready to proceed?'},
+                              {'id': 'elena_calibration', 'label': 'What is calibration?'},
+                              {'id': 'elena_consent', 'label': 'What does consent cover?'},
+                              {'id': 'arun_feel', 'label': 'How will it feel?'},
+                              {'id': 'arun_wait', 'label': 'I need a moment.'},
+                              {'id': 'arun_monitor', 'label': 'What will you monitor?'},
+                              {'id': 'arun_controls', 'label': 'Can I stop at any time?'},
+                            ];
+                            return m.Column(
+                              mainAxisSize: m.MainAxisSize.min,
+                              crossAxisAlignment: m.CrossAxisAlignment.start,
+                              children: [
+                                m.Text('Learned', style: const m.TextStyle(color: m.Colors.white70, fontSize: 12)),
+                                for (final t in topics)
+                                  m.Row(
+                                    mainAxisSize: m.MainAxisSize.min,
+                                    children: [
+                                      m.Icon(known.contains(t['id']) ? m.Icons.check : m.Icons.remove,
+                                          size: 14, color: known.contains(t['id']) ? m.Colors.greenAccent : m.Colors.white24),
+                                      const m.SizedBox(width: 4),
+                                      m.Text(t['label']!, style: const m.TextStyle(color: m.Colors.white, fontSize: 12)),
+                                    ],
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
                       ],
                     );
                   },
@@ -753,6 +1197,11 @@ class _HUD extends m.StatelessWidget {
         right: 12,
         top: 12,
         child: m.Row(children: [
+          m.IconButton(
+            tooltip: 'Menu',
+            onPressed: () => game._showPause.value = true,
+            icon: const m.Icon(m.Icons.more_horiz, color: m.Colors.white),
+          ),
           m.IconButton(
             tooltip: 'Save',
             onPressed: () async {
@@ -785,6 +1234,62 @@ class _HUD extends m.StatelessWidget {
             icon: const m.Icon(m.Icons.refresh, color: m.Colors.white),
           ),
         ]),
+      ),
+      // Pause menu overlay
+      m.ValueListenableBuilder<bool>(
+        valueListenable: game._showPause,
+        builder: (context, show, _) {
+          if (!show) return const m.SizedBox.shrink();
+          return m.Container(
+            color: m.Colors.black.withOpacity(0.55),
+            alignment: m.Alignment.center,
+            child: m.Container(
+              padding: const m.EdgeInsets.all(16),
+              decoration: m.BoxDecoration(
+                color: m.Colors.grey.shade900,
+                borderRadius: m.BorderRadius.circular(12),
+                border: m.Border.all(color: m.Colors.white24),
+              ),
+              width: 320,
+              child: m.Column(
+                mainAxisSize: m.MainAxisSize.min,
+                crossAxisAlignment: m.CrossAxisAlignment.stretch,
+                children: [
+                  const m.Text('Pause', style: m.TextStyle(fontSize: 18, fontWeight: m.FontWeight.bold)),
+                  const m.SizedBox(height: 10),
+                  m.ElevatedButton(onPressed: () => game._showPause.value = false, child: const m.Text('Resume')),
+                  m.ElevatedButton(
+                      onPressed: () async {
+                        await Persist.save(game.gs);
+                        game._startDialog('System', const ['Progress saved.']);
+                        game._showPause.value = false;
+                      },
+                      child: const m.Text('Save')),
+                  m.OutlinedButton(
+                      onPressed: () async {
+                        await Persist.reset();
+                        game.gs.consentGiven.value = false;
+                        game.gs.startSection(chapterName: 'Chapter 1: Arrival', sectionName: "Doctors' Lab");
+                        game._startDialog('System', const ['Progress reset.']);
+                        game._showPause.value = false;
+                      },
+                      child: const m.Text('Reset Progress')),
+                  m.TextButton(
+                      onPressed: () {
+                        if (game._audioMuted) {
+                          FlameAudio.bgm.resume();
+                        } else {
+                          FlameAudio.bgm.pause();
+                        }
+                        game._audioMuted = !game._audioMuted;
+                        game._showPause.value = false;
+                      },
+                      child: m.Text(game._audioMuted ? 'Unmute Audio' : 'Mute Audio')),
+                ],
+              ),
+            ),
+          );
+        },
       ),
       // Top-left hint when near interactables
       m.Positioned(
@@ -843,7 +1348,7 @@ class _HUD extends m.StatelessWidget {
                       const m.SizedBox(height: 6),
                       m.Text(line.text, style: const m.TextStyle(color: m.Colors.white)),
                       const m.SizedBox(height: 6),
-                      const m.Text('Tap Action to continue', style: m.TextStyle(color: m.Colors.white54, fontSize: 12)),
+                      const m.Text('Tap Action to continue', style: const m.TextStyle(color: m.Colors.white54, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -852,23 +1357,33 @@ class _HUD extends m.StatelessWidget {
           },
         ),
       ),
-      // Action button (bottom-right)
+      // Action (A) and Attack (B) buttons (bottom-right)
       m.Positioned(
         right: 24,
         bottom: 24,
-        child: m.ElevatedButton(
-          style: m.ElevatedButton.styleFrom(
-            shape: const m.CircleBorder(),
-            padding: const m.EdgeInsets.all(18),
-          ),
-          onPressed: game.onActionPressed,
-          child: const m.Text('A'),
+        child: m.Row(
+          mainAxisSize: m.MainAxisSize.min,
+          children: [
+            m.ElevatedButton(
+              style: m.ElevatedButton.styleFrom(
+                shape: const m.CircleBorder(),
+                padding: const m.EdgeInsets.all(18),
+              ),
+              onPressed: game.onActionPressed,
+              child: const m.Text('A'),
+            ),
+            const m.SizedBox(width: 12),
+            m.ElevatedButton(
+              style: m.ElevatedButton.styleFrom(
+                shape: const m.CircleBorder(),
+                padding: const m.EdgeInsets.all(18),
+              ),
+              onPressed: game.onAttackPressed,
+              child: const m.Text('B'),
+            ),
+          ],
         ),
       ),
     ]);
   }
 }
-
-
-
-

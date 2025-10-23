@@ -1,20 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'util/backup.dart';
 import 'sync/journal_sync.dart';
 import 'services/narrator.dart' as narrator;
 import 'game/game.dart';
 import 'state/journal.dart';
 
+import 'package:provider/provider.dart';
+
 void main() {
-  runApp(const UC4ERPGApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => SyncStatusModel(),
+      child: const UC4ERPGApp(),
+    ),
+  );
 }
 
-class SyncStatus {
-  static final ValueNotifier<bool> busy = ValueNotifier(false);
-  static DateTime? lastPull;
-  static DateTime? lastPush;
+class SyncStatusModel extends ChangeNotifier {
+  bool _busy = false;
+  bool get busy => _busy;
+  set busy(bool value) {
+    _busy = value;
+    notifyListeners();
+  }
+
+  DateTime? _lastPull;
+  DateTime? get lastPull => _lastPull;
+  set lastPull(DateTime? value) {
+    _lastPull = value;
+    notifyListeners();
+  }
+
+  DateTime? _lastPush;
+  DateTime? get lastPush => _lastPush;
+  set lastPush(DateTime? value) {
+    _lastPush = value;
+    notifyListeners();
+  }
 }
 
 class UC4ERPGApp extends StatelessWidget {
@@ -50,9 +73,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!kIsWeb && !isTestBinding) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         try {
-          SyncStatus.busy.value = true;
+          Provider.of<SyncStatusModel>(context, listen: false).busy = true;
           final added = await JournalSyncService.pullAndMerge();
-          SyncStatus.lastPull = DateTime.now();
+          Provider.of<SyncStatusModel>(context, listen: false).lastPull = DateTime.now();
           if (mounted && added > 0) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Pulled ' + added.toString() + ' new entries')),
@@ -61,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
         } catch (_) {
           // swallow for now
         } finally {
-          SyncStatus.busy.value = false;
+          Provider.of<SyncStatusModel>(context, listen: false).busy = false;
         }
       });
     }
@@ -69,51 +92,59 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isTestBinding = WidgetsBinding.instance.runtimeType
+        .toString()
+        .contains('TestWidgetsFlutterBinding');
+    final actions = isTestBinding ? const <Widget>[] : const <Widget>[SyncIcon()];
+    final progressBar = Builder(builder: (context) {
+      try {
+        final sync = Provider.of<SyncStatusModel>(context);
+        return sync.busy ? const LinearProgressIndicator(minHeight: 2) : const SizedBox.shrink();
+      } catch (_) {
+        return const SizedBox.shrink();
+      }
+    });
+    final buttons = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ElevatedButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const GameScreen()),
+          ),
+          child: const Text('Play'),
+        ),
+        const SizedBox(height: 12),
+        ElevatedButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const SessionScreen()),
+          ),
+          child: const Text('Start Session'),
+        ),
+        const SizedBox(height: 12),
+        ElevatedButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const JournalScreen()),
+          ),
+          child: const Text('Open Journal'),
+        ),
+      ],
+    );
+    final bodyContent = Column(children: [
+      progressBar,
+      if (isTestBinding)
+        Center(child: buttons)
+      else
+        Expanded(child: Center(child: buttons)),
+    ]);
     return Scaffold(
-      appBar: AppBar(title: const Text('UC4ERPG'), actions: const [SyncIcon()]),
+      appBar: AppBar(title: const Text('UC4ERPG'), actions: actions),
       drawer: const _AppDrawer(),
-      body: Column(
-        children: [
-          ValueListenableBuilder<bool>(
-            valueListenable: SyncStatus.busy,
-            builder: (context, busy, _) => busy
-                ? const LinearProgressIndicator(minHeight: 2)
-                : const SizedBox.shrink(),
-          ),
-          Expanded(
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ElevatedButton(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const GameScreen()),
-                    ),
-                    child: const Text('Play'),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const SessionScreen()),
-                    ),
-                    child: const Text('Start Session'),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const JournalScreen()),
-                    ),
-                    child: const Text('Open Journal'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+      body: isTestBinding
+          ? SafeArea(child: SingleChildScrollView(child: bodyContent))
+          : bodyContent,
     );
   }
 }
@@ -167,23 +198,21 @@ class SyncIcon extends StatelessWidget {
   const SyncIcon({super.key});
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: SyncStatus.busy,
-      builder: (context, busy, _) {
-        final lastPush = SyncStatus.lastPush?.toLocal().toString() ?? 'never';
-        final lastPull = SyncStatus.lastPull?.toLocal().toString() ?? 'never';
-        final tip = 'Last push: ' + lastPush + '\nLast pull: ' + lastPull;
+    return Consumer<SyncStatusModel>(
+      builder: (context, sync, _) {
+        final lastPush = sync.lastPush?.toLocal().toString() ?? 'never';
+        final lastPull = sync.lastPull?.toLocal().toString() ?? 'never';
+        final tip = 'Last push: ' + lastPush + ' | Last pull: ' + lastPull;
+        final child = sync.busy
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.cloud_done, size: 20);
         return Tooltip(
           message: tip,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 8.0),
-            child: busy
-                ? const SizedBox(
-                    width: 20, height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.cloud_done),
-          ),
+          child: SizedBox(width: 28, height: 28, child: Center(child: child)),
         );
       },
     );

@@ -6,9 +6,10 @@ To run locally:
 
 ```bash
 cd client
+flutter clean
 flutter pub get
-flutter create .   # generates platform folders
-flutter run
+flutter create    # generates platform folders
+flutter run -d chrome
 ```
 
 CI runs `flutter analyze` and `flutter test` automatically.

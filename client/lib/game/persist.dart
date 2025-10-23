@@ -9,6 +9,7 @@ class Persist {
   static const _kSection = '${_kPrefix}section';
   static const _kQuest = '${_kPrefix}quest';
   static const _kSpoken = '${_kPrefix}spoken';
+  static const _kKnown = '${_kPrefix}known';
 
   static Future<void> save(GameState gs) async {
     final prefs = await SharedPreferences.getInstance();
@@ -24,7 +25,8 @@ class Persist {
         'items': q.items.map((e) => {'id': e.id, 'text': e.text, 'complete': e.complete}).toList(),
       }),
     );
-    await prefs.setStringList(_kSpoken, gs.spokenTo.toList());
+    await prefs.setStringList(_kSpoken, gs.spokenTo.value.toList());
+    await prefs.setStringList(_kKnown, gs.knowledge.value.toList(growable: false));
   }
 
   static Future<void> loadInto(GameState gs) async {
@@ -45,6 +47,8 @@ class Persist {
     }
     final spoken = prefs.getStringList(_kSpoken);
     if (spoken != null) gs.setSpokenBulk(spoken);
+    final known = prefs.getStringList(_kKnown);
+    if (known != null) gs.setKnownBulk(known);
   }
 
   static Future<void> reset() async {
@@ -54,6 +58,7 @@ class Persist {
     await prefs.remove(_kSection);
     await prefs.remove(_kQuest);
     await prefs.remove(_kSpoken);
+    await prefs.remove(_kKnown);
   }
 }
 
