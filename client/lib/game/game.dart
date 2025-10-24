@@ -47,6 +47,8 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     camera.viewfinder.zoom = 1.0;
 
     // Load tileset and TMX file
+    // Ensure Flame resolves from Flutter's `assets/` root instead of `assets/images/`
+    images.prefix = 'assets/';
     final labTilesImage = await images.load('tilesets/lab_tiles.png');
     _labTiles = SpriteSheet(image: labTilesImage, srcSize: Vector2.all(32));
 

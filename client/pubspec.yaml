@@ -25,4 +25,5 @@ flutter:
     - assets/tiles/
     - assets/portraits/
     - assets/audio/
+    - assets/images/
     - assets/tilesets/
