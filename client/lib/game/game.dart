@@ -43,135 +43,104 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
 
   @override
   Future<void> onLoad() async {
-    // Normalize Flame image prefix so asset keys start with 'assets/'
-    images.prefix = 'assets/';
-    // Fix camera scale for web so things aren't zoomed
-    try {
-      camera.viewfinder.zoom = 1.0;
-    } catch (_) {}
-    // Load tileset (for sprites) and try TMX; fallback to procedural scene on any error
-    final labTilesImage = await images.load('tilesets/lab_tiles.png');
+    // Set a fixed camera zoom
+    camera.viewfinder.zoom = 1.0;
+
+    // Load tileset and TMX file
+    images.prefix = 'assets/tilesets/';
+    final labTilesImage = await images.load('lab_tiles.png');
     _labTiles = SpriteSheet(image: labTilesImage, srcSize: Vector2.all(32));
+
+    images.prefix = 'assets/maps/';
+    _tiled = await TiledComponent.load('lab.tmx', Vector2.all(32));
+    add(_tiled!);
+
+    // Reset prefix
+    images.prefix = 'assets/';
+
+    // Play ambient audio
     try {
-      _tiled = await TiledComponent.load('maps/lab.tmx', Vector2.all(32));
-      add(_tiled!);
-      // Ambient
-      try {
-        FlameAudio.bgm.initialize();
-        FlameAudio.bgm.play('ambient_lab.wav', volume: 0.15);
-      } catch (_) {}
+      FlameAudio.bgm.initialize();
+      FlameAudio.bgm.play('ambient_lab.wav', volume: 0.15);
+    } catch (_) {}
 
-      // Collisions from object layer
-      final collisions = _tiled!.tileMap.getLayer<ObjectGroup>('collisions');
-      if (collisions != null) {
-        for (final obj in collisions.objects) {
-          add(Wall(rect: Rect.fromLTWH(obj.x, obj.y, obj.width, obj.height)));
-        }
+    // Extract collision boundaries from the TMX file
+    final collisions = _tiled!.tileMap.getLayer<ObjectGroup>('collisions');
+    if (collisions != null) {
+      for (final obj in collisions.objects) {
+        add(Wall(rect: Rect.fromLTWH(obj.x, obj.y, obj.width, obj.height)));
       }
-
-      // Spawns
-      Vector2 playerPos = Vector2.zero();
-      Vector2 elenaPos = Vector2(520, 340);
-      Vector2 arunPos = Vector2(440, 300);
-      Vector2 consentPos = Vector2(260, 480);
-      final spawns = _tiled!.tileMap.getLayer<ObjectGroup>('spawns');
-      if (spawns != null) {
-        for (final o in spawns.objects) {
-          final v = Vector2(o.x + (o.width / 2), o.y + (o.height / 2));
-          switch (o.name) {
-            case 'player':
-              playerPos = v;
-              break;
-            case 'doc_elena':
-              elenaPos = v;
-              break;
-            case 'doc_arun':
-              arunPos = v;
-              break;
-            case 'consent_console':
-              consentPos = v;
-              break;
-            case 'door_to_corridor':
-              add(Door(position: v, label: 'To Corridor', targetScene: 'corridor', lockedUntilConsent: true));
-              break;
-            case 'enemy_drone':
-              add(Drone(position: v));
-              break;
-          }
-        }
-      }
-      // If no enemies placed in TMX, add a default one
-      if (!children.any((c) => c is Drone)) {
-        add(Drone(position: Vector2(playerPos.x + 120, playerPos.y + 40)));
-      }
-
-      // Player + camera
-      _player = Player(position: playerPos);
-      add(_player);
-      camera.follow(_player);
-
-      // Doctors and console
-      addAll([
-        DoctorNPC(
-            name: 'Dr. Elena Vega',
-            position: elenaPos,
-            lines: const [
-              'Vitals are steady. The fungal lattice is responsive.',
-              'When you are ready, we will proceed - your consent matters.',
-            ],
-            sprite: _labTiles.getSprite(0, 2)),
-        DoctorNPC(
-            name: 'Dr. Arun Patel',
-            position: arunPos,
-            lines: const [
-              'Welcome. You are safe - take a slow breath.',
-              'We are stabilizing the interface to the bio-compute mesh.',
-            ],
-            sprite: _labTiles.getSprite(0, 3)),
-        ConsentConsole(position: consentPos),
-      ]);
-      // Add a few decorative props for visual richness
-      addAll([
-        HologramPanel(position: elenaPos + Vector2(120, -120), size: Vector2(180, 100)),
-        FungusVat(position: arunPos + Vector2(-160, 60)),
-        BioRack(position: consentPos + Vector2(160, -60)),
-      ]);
-    } catch (_) {
-      // Procedural fallback: background, walls, props, player, doctors
-      add(Background());
-      addAll([
-        Wall(rect: const Rect.fromLTWH(-500, -300, 1000, 20)),
-        Wall(rect: const Rect.fromLTWH(-500, 280, 1000, 20)),
-        Wall(rect: const Rect.fromLTWH(-500, -300, 20, 600)),
-        Wall(rect: const Rect.fromLTWH(480, -300, 20, 600)),
-      ]);
-      addAll([
-        HologramPanel(position: Vector2(-320, -180), size: Vector2(180, 100)),
-        HologramPanel(position: Vector2(-120, -180), size: Vector2(180, 100)),
-        ConsoleStation(position: Vector2(-380, 0)),
-        ConsoleStation(position: Vector2(420, -40)),
-        FungusVat(position: Vector2(120, -60)),
-        FungusVat(position: Vector2(220, 30)),
-        BioRack(position: Vector2(-40, 120)),
-      ]);
-      _player = Player(position: Vector2(-200, 0));
-      add(_player);
-      camera.follow(_player);
-      addAll([
-        DoctorNPC(name: 'Dr. Elena Vega', position: Vector2(160, 40), lines: const [
-          'Vitals are steady. The fungal lattice is responsive.',
-          'When you are ready, we will proceed - your consent matters.',
-        ], sprite: _labTiles.getSprite(0, 2)),
-        DoctorNPC(name: 'Dr. Arun Patel', position: Vector2(80, 0), lines: const [
-          'Welcome. You are safe - take a slow breath.',
-          'We are stabilizing the interface to the bio-compute mesh.',
-        ], sprite: _labTiles.getSprite(0, 3)),
-        ConsentConsole(position: Vector2(-200, 120)),
-        Drone(position: Vector2(-60, -40)),
-      ]);
     }
 
-    // Joystick (bottom-left)
+    // Extract spawn points from the TMX file
+    Vector2 playerPos = Vector2.zero();
+    Vector2 elenaPos = Vector2(520, 340);
+    Vector2 arunPos = Vector2(440, 300);
+    Vector2 consentPos = Vector2(260, 480);
+    final spawns = _tiled!.tileMap.getLayer<ObjectGroup>('spawns');
+    if (spawns != null) {
+      for (final o in spawns.objects) {
+        final v = Vector2(o.x + (o.width / 2), o.y + (o.height / 2));
+        switch (o.name) {
+          case 'player':
+            playerPos = v;
+            break;
+          case 'doc_elena':
+            elenaPos = v;
+            break;
+          case 'doc_arun':
+            arunPos = v;
+            break;
+          case 'consent_console':
+            consentPos = v;
+            break;
+          case 'door_to_corridor':
+            add(Door(position: v, label: 'To Corridor', targetScene: 'corridor', lockedUntilConsent: true));
+            break;
+          case 'enemy_drone':
+            add(Drone(position: v));
+            break;
+        }
+      }
+    }
+    // If no enemies placed in TMX, add a default one
+    if (!children.any((c) => c is Drone)) {
+      add(Drone(position: Vector2(playerPos.x + 120, playerPos.y + 40)));
+    }
+
+    // Initialize player and camera
+    _player = Player(position: playerPos);
+    add(_player);
+    camera.follow(_player);
+
+    // Add NPCs and interactive objects
+    addAll([
+      DoctorNPC(
+          name: 'Dr. Elena Vega',
+          position: elenaPos,
+          lines: const [
+            'Vitals are steady. The fungal lattice is responsive.',
+            'When you are ready, we will proceed - your consent matters.',
+          ],
+          sprite: _labTiles.getSprite(0, 2)),
+      DoctorNPC(
+          name: 'Dr. Arun Patel',
+          position: arunPos,
+          lines: const [
+            'Welcome. You are safe - take a slow breath.',
+            'We are stabilizing the interface to the bio-compute mesh.',
+          ],
+          sprite: _labTiles.getSprite(0, 3)),
+      ConsentConsole(position: consentPos),
+    ]);
+    // Add decorative props
+    addAll([
+      HologramPanel(position: elenaPos + Vector2(120, -120), size: Vector2(180, 100)),
+      FungusVat(position: arunPos + Vector2(-160, 60)),
+      BioRack(position: consentPos + Vector2(160, -60)),
+    ]);
+
+    // Add the joystick for player movement
     _joystick = JoystickComponent(
       knob: CircleComponent(radius: 22, paint: Paint()..color = m.Colors.indigo),
       background: CircleComponent(radius: 44, paint: Paint()..color = m.Colors.indigo.withOpacity(0.2)),
@@ -179,23 +148,23 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     );
     add(_joystick);
 
-    // Show HUD overlay
+    // Show the HUD
     overlays.add('HUD');
 
-    // Load saved state
+    // Load any saved game state
     await Persist.loadInto(gs);
   }
 
   @override
   void update(double dt) {
     super.update(dt);
-    // Drive player with joystick unless in dialog
+    // Move the player based on joystick and keyboard input
     if (!_inDialog) {
       final delta = _computeInput();
       _player.moveWithCollision(delta, dt, children.whereType<Wall>());
     }
 
-    // Update interact hint
+    // Show or hide the interaction hint
     if (!_inDialog) {
       final target = _nearestInteractable();
       interactHint.value = target?.$2; // label
@@ -203,8 +172,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       interactHint.value = null;
     }
 
-    // Keep joystick anchored to screen bottom-left when camera moves
-    // Estimated placement using camera center and current viewport size
+    // Keep the joystick anchored to the screen
     final halfW = size.x / 2;
     final halfH = size.y / 2;
     final joyOffset = Vector2(24 + 44, 24 + 44); // margin + radius
@@ -212,13 +180,13 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       camera.viewfinder.position.x - halfW + joyOffset.x,
       camera.viewfinder.position.y + halfH - joyOffset.y,
     );
-    // Cooldowns
+    // Update cooldown timers
     if (_attackCooldown > 0) {
       _attackCooldown = math.max(0, _attackCooldown - dt);
     }
     if (_invuln > 0) _invuln = math.max(0, _invuln - dt);
 
-    // Enemy contact damage
+    // Handle enemy contact damage
     for (final d in children.whereType<Drone>()) {
       final dist = d.position.distanceTo(_player.position);
       if (dist < 20 && _invuln <= 0) {
@@ -230,7 +198,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
 
   Vector2 _computeInput() {
     final d = _joystick.delta.clone();
-    // Keyboard (RawKeyboard for broad SDK compatibility)
+    // Keyboard input
     final pressed = RawKeyboard.instance.keysPressed;
     double x = 0, y = 0;
     if (pressed.contains(LogicalKeyboardKey.keyA) || pressed.contains(LogicalKeyboardKey.arrowLeft)) x -= 1;
@@ -241,7 +209,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       final k = Vector2(x, y).normalized();
       d.add(k);
     }
-    // Trigger action on Space/Enter/E (simple polling; can debounce later)
+    // Action button
     final actionDown = pressed.contains(LogicalKeyboardKey.space) ||
         pressed.contains(LogicalKeyboardKey.enter) ||
         pressed.contains(LogicalKeyboardKey.keyE);
@@ -249,13 +217,13 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       onActionPressed();
     }
     _actionDownPrev = actionDown;
-    // Pause toggle on Escape
+    // Pause button
     final pauseDown = pressed.contains(LogicalKeyboardKey.escape);
     if (pauseDown && !_pauseDownPrev) {
       _showPause.value = !_showPause.value;
     }
     _pauseDownPrev = pauseDown;
-    // Attack on B key
+    // Attack button
     final attackDown = pressed.contains(LogicalKeyboardKey.keyB);
     if (attackDown && !_attackDownPrev) {
       onAttackPressed();
@@ -264,13 +232,13 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     return d;
   }
 
-  // Called from HUD Action button
+  // Handle the action button press
   void onActionPressed() {
     if (_inDialog) {
       _advanceDialog();
       return;
     }
-    // Find closest interactable (NPC or object)
+    // Find the closest interactable object
     final nearest = _nearestInteractable();
     if (nearest != null) {
       final kind = nearest.$1;
@@ -296,7 +264,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     }
   }
 
-  // Called from HUD Attack button (B)
+  // Handle the attack button press
   void onAttackPressed() {
     if (_inDialog) return;
     if (_attackCooldown > 0) return;
@@ -304,7 +272,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     add(Pulse(origin: _player.position.clone(), maxRadius: 96, duration: 0.25));
   }
 
-  // returns (component, label)
+  // Find the closest interactable object
   (Object, String)? _nearestInteractable() {
     Object? nearest;
     String? label;
@@ -330,6 +298,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     return (nearest, label);
   }
 
+  // Start a dialog
   void _startDialog(String speaker, List<String> lines) {
     _dialogQueue
       ..clear()
@@ -338,6 +307,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     _advanceDialog();
   }
 
+  // Advance to the next line of dialog
   void _advanceDialog() {
     if (_dialogQueue.isEmpty) {
       _inDialog = false;
@@ -347,6 +317,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     activeLine.value = _dialogQueue.removeAt(0);
   }
 
+  // Mark an NPC as spoken to
   void _markSpoken(String name) {
     _spokenTo.add(name);
     gs.markSpoken(name);
@@ -355,12 +326,14 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     }
   }
 
+  // Show the consent dialog
   void _presentConsent() {
     _inDialog = false;
     activeLine.value = null;
     _showConsent.value = true;
   }
 
+  // Handle the player's consent choice
   void onConsentChoice(bool consented) {
     _showConsent.value = false;
     if (consented) {
@@ -370,8 +343,6 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
         'Consent acknowledged. Initializing calibration sequence.',
         'Hold steady — establishing cognitive link to bio-compute lattice.',
       ]);
-      // Optional: record to in-app journal for later sync
-      // (kept internal to avoid importing state here)
     } else {
       _startDialog('System', const [
         'Consent deferred. You may speak to the doctors again or proceed later.',
@@ -380,6 +351,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     }
   }
 
+  // Apply damage to the player
   void _applyDamage(int dmg, Vector2 knockback) {
     if (_hp.value <= 0) return;
     _hp.value = math.max(0, _hp.value - dmg);
@@ -388,6 +360,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     // TODO: show flash or dialog when hp hits 0
   }
 
+  // Try to transition to a new scene
   void _tryTransition(Door door) {
     if (door.lockedUntilConsent && !gs.consentGiven.value) {
       _startDialog('Door', const ['Locked. Consent required to proceed.']);
@@ -396,6 +369,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     _loadScene(door.targetScene);
   }
 
+  // Show the doctor choice dialog
   void _presentDoctorChoice(String name) {
     if (name.contains('Elena')) {
       _choice.value = _Choice(
@@ -422,6 +396,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     }
   }
 
+  // Handle the player's choice in a dialog
   void _onChoice(String id) {
     _choice.value = null;
     switch (id) {
@@ -483,8 +458,9 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     }
   }
 
+  // Load a new scene
   Future<void> _loadScene(String scene) async {
-    // Remove previous scene components (map, props, NPCs, doors, walls)
+    // Remove all the components from the previous scene
     final toRemove = children
         .where((c) =>
             c is TiledComponent ||
@@ -501,7 +477,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       c.removeFromParent();
     }
 
-    // Load TMX for the scene
+    // Load the new TMX file
     String mapPath;
     switch (scene) {
       case 'lab':
@@ -518,7 +494,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     }
     _tiled = await TiledComponent.load(mapPath, Vector2.all(32));
     add(_tiled!);
-    // Ambient per scene
+    // Play the correct ambient audio
     if (scene == 'lab' || scene == 'observation' || scene == 'corridor') {
       if (!FlameAudio.bgm.isPlaying) {
         FlameAudio.bgm.play('ambient_lab.wav', volume: 0.15);
@@ -527,7 +503,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       FlameAudio.bgm.stop();
     }
 
-    // Collisions
+    // Add collisions
     final collisions = _tiled!.tileMap.getLayer<ObjectGroup>('collisions');
     if (collisions != null) {
       for (final obj in collisions.objects) {
@@ -535,7 +511,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       }
     }
 
-    // Spawns and objects
+    // Add spawns and objects
     Vector2 playerPos = _player.position.clone();
     final spawns = _tiled!.tileMap.getLayer<ObjectGroup>('spawns');
     if (spawns != null) {
@@ -583,13 +559,15 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
         }
       }
     }
-    // Fallback: ensure at least one enemy per scene
+    // Add a fallback enemy
     if (!children.any((c) => c is Drone)) {
       add(Drone(position: playerPos + Vector2(140, -20)));
     }
 
+    // Update the player's position and the camera
     _player.position = playerPos;
     camera.follow(_player);
+    // Update the section name
     switch (scene) {
       case 'lab':
         gs.section.value = "Doctors' Lab";
@@ -600,26 +578,6 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
       case 'observation':
         gs.section.value = 'Observation Room';
         break;
-    }
-  }
-}
-
-class Background extends PositionComponent {
-  Background() : super(priority: -10);
-  @override
-  void render(Canvas canvas) {
-    final size = canvas.getLocalClipBounds().size;
-    final paint = Paint()..color = m.Colors.grey.shade900;
-    canvas.drawRect(Rect.fromLTWH(-5000, -5000, 10000, 10000), paint);
-    // Simple grid for sense of scale
-    final grid = Paint()
-      ..color = m.Colors.white12
-      ..strokeWidth = 1;
-    for (double x = -5000; x <= 5000; x += 64) {
-      canvas.drawLine(Offset(x, -5000), Offset(x, 5000), grid);
-    }
-    for (double y = -5000; y <= 5000; y += 64) {
-      canvas.drawLine(Offset(-5000, y), Offset(5000, y), grid);
     }
   }
 }
@@ -1365,18 +1323,18 @@ class _HUD extends m.StatelessWidget {
           mainAxisSize: m.MainAxisSize.min,
           children: [
             m.ElevatedButton(
-              style: m.ElevatedButton.styleFrom(
-                shape: const m.CircleBorder(),
-                padding: const m.EdgeInsets.all(18),
+              style: m.ButtonStyle(
+                shape: m.MaterialStateProperty.all(const m.CircleBorder()),
+                padding: m.MaterialStateProperty.all(const m.EdgeInsets.all(18)),
               ),
               onPressed: game.onActionPressed,
               child: const m.Text('A'),
             ),
             const m.SizedBox(width: 12),
             m.ElevatedButton(
-              style: m.ElevatedButton.styleFrom(
-                shape: const m.CircleBorder(),
-                padding: const m.EdgeInsets.all(18),
+              style: m.ButtonStyle(
+                shape: m.MaterialStateProperty.all(const m.CircleBorder()),
+                padding: m.MaterialStateProperty.all(const m.EdgeInsets.all(18)),
               ),
               onPressed: game.onAttackPressed,
               child: const m.Text('B'),
