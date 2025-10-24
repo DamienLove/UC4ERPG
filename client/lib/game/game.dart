@@ -9,6 +9,8 @@ import 'package:flame_tiled/flame_tiled.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart' as m;
+import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' as f show ValueNotifier;
 import 'dart:math' as math;
 import 'state.dart';
@@ -36,7 +38,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
     // Normalize Flame image prefix so asset keys start with 'assets/'
     images.prefix = 'assets/';
     // Load tileset
-    final labTilesImage = await images.load('tilesets/lab_tiles.png');
+    final labTilesImage = await images.load('image/tilesets/lab_tiles.png');
     _labTiles = SpriteSheet(image: labTilesImage, srcSize: Vector2.all(32));
 
     try {
@@ -543,7 +545,7 @@ class FungusVat extends PositionComponent implements Inspectable {
   ];
   FungusVat({required super.position}) { size = Vector2(64, 96); anchor = Anchor.center; }
   @override
-  void render(Canvas canvas) {.
+  void render(Canvas canvas) {
     final glass = Paint()..color = m.Colors.greenAccent.withOpacity(0.28);
     canvas.drawRRect(RRect.fromRectAndRadius(size.toRect(), const Radius.circular(12)), glass);
     final liquid = Paint()..color = m.Colors.greenAccent.withOpacity(0.45);
