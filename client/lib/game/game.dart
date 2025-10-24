@@ -1,4 +1,4 @@
-﻿import 'dart:ui';
+import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
@@ -47,16 +47,11 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
     camera.viewfinder.zoom = 1.0;
 
     // Load tileset and TMX file
-    images.prefix = 'assets/tilesets/';
-    final labTilesImage = await images.load('lab_tiles.png');
+    final labTilesImage = await images.load('tilesets/lab_tiles.png');
     _labTiles = SpriteSheet(image: labTilesImage, srcSize: Vector2.all(32));
 
-    images.prefix = 'assets/maps/';
-    _tiled = await TiledComponent.load('lab.tmx', Vector2.all(32));
+    _tiled = await TiledComponent.load('maps/lab.tmx', Vector2.all(32));
     add(_tiled!);
-
-    // Reset prefix
-    images.prefix = 'assets/';
 
     // Play ambient audio
     try {
@@ -98,18 +93,18 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
             add(Door(position: v, label: 'To Corridor', targetScene: 'corridor', lockedUntilConsent: true));
             break;
           case 'enemy_drone':
-            add(Drone(position: v));
+            add(Drone(position: v, sprite: _labTiles.getSprite(2, 0)));
             break;
         }
       }
     }
     // If no enemies placed in TMX, add a default one
     if (!children.any((c) => c is Drone)) {
-      add(Drone(position: Vector2(playerPos.x + 120, playerPos.y + 40)));
+      add(Drone(position: Vector2(playerPos.x + 120, playerPos.y + 40), sprite: _labTiles.getSprite(2, 0)));
     }
 
     // Initialize player and camera
-    _player = Player(position: playerPos);
+    _player = Player(position: playerPos, sprite: _labTiles.getSprite(0, 0));
     add(_player);
     camera.follow(_player);
 
@@ -131,13 +126,13 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
             'We are stabilizing the interface to the bio-compute mesh.',
           ],
           sprite: _labTiles.getSprite(0, 3)),
-      ConsentConsole(position: consentPos),
+      ConsentConsole(position: consentPos, sprite: _labTiles.getSprite(1, 3)),
     ]);
     // Add decorative props
     addAll([
       HologramPanel(position: elenaPos + Vector2(120, -120), size: Vector2(180, 100)),
-      FungusVat(position: arunPos + Vector2(-160, 60)),
-      BioRack(position: consentPos + Vector2(160, -60)),
+      FungusVat(position: arunPos + Vector2(-160, 60), sprite: _labTiles.getSprite(1, 1)),
+      BioRack(position: consentPos + Vector2(160, -60), sprite: _labTiles.getSprite(1, 2)),
     ]);
 
     // Add the joystick for player movement
@@ -542,7 +537,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
                 sprite: _labTiles.getSprite(0, 3)));
             break;
           case 'consent_console':
-            add(ConsentConsole(position: v));
+            add(ConsentConsole(position: v, sprite: _labTiles.getSprite(1, 3)));
             break;
           case 'door_to_corridor':
             add(Door(position: v, label: 'To Corridor', targetScene: 'corridor', lockedUntilConsent: true));
@@ -554,14 +549,14 @@ class UC4EGame extends FlameGame with HasCollisionDetection {
             add(Door(position: v, label: 'To Observation', targetScene: 'observation', lockedUntilConsent: true));
             break;
           case 'enemy_drone':
-            add(Drone(position: v));
+            add(Drone(position: v, sprite: _labTiles.getSprite(2, 0)));
             break;
         }
       }
     }
     // Add a fallback enemy
     if (!children.any((c) => c is Drone)) {
-      add(Drone(position: playerPos + Vector2(140, -20)));
+      add(Drone(position: playerPos + Vector2(140, -20), sprite: _labTiles.getSprite(2, 0)));
     }
 
     // Update the player's position and the camera
@@ -591,18 +586,12 @@ class Wall extends PositionComponent with CollisionCallbacks {
     size = Vector2(rect.width, rect.height);
     add(RectangleHitbox());
   }
-  @override
-  void render(Canvas canvas) {
-    final paint = Paint()..color = m.Colors.indigo.withOpacity(0.15);
-    canvas.drawRect(size.toRect(), paint);
-  }
 }
 
-class Player extends PositionComponent with CollisionCallbacks {
+class Player extends SpriteComponent with CollisionCallbacks {
   final double speed = 220; // units per second
 
-  Player({required Vector2 position}) {
-    this.position = position;
+  Player({required Vector2 position, required Sprite sprite}) : super(sprite: sprite, position: position) {
     size = Vector2.all(40);
     anchor = Anchor.center;
   }
@@ -638,17 +627,6 @@ class Player extends PositionComponent with CollisionCallbacks {
       if (r.overlaps(wr)) return true;
     }
     return false;
-  }
-
-  @override
-  void render(Canvas canvas) {
-    final body = Paint()..color = m.Colors.cyanAccent;
-    final border = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..color = m.Colors.blueGrey.shade900;
-    canvas.drawCircle(Offset.zero, size.x * 0.42, body);
-    canvas.drawCircle(Offset.zero, size.x * 0.42, border);
   }
 }
 
@@ -717,7 +695,7 @@ class ConsoleStation extends PositionComponent implements Inspectable {
   }
 }
 
-class FungusVat extends PositionComponent implements Inspectable {
+class FungusVat extends SpriteComponent implements Inspectable {
   @override
   final String label = 'Fungal Bio-Vat';
   @override
@@ -725,47 +703,26 @@ class FungusVat extends PositionComponent implements Inspectable {
     'Suspended mycelial network in nutrient gel.',
     'Cognitive throughput nominal; preparing query channel.'
   ];
-  FungusVat({required super.position}) {
+  FungusVat({required super.position, required super.sprite}) {
     size = Vector2(64, 96);
     anchor = Anchor.center;
   }
-  @override
-  void render(Canvas canvas) {
-    final glass = Paint()..color = m.Colors.greenAccent.withOpacity(0.28);
-    canvas.drawRRect(RRect.fromRectAndRadius(size.toRect(), const Radius.circular(12)), glass);
-    final liquid = Paint()..color = m.Colors.greenAccent.withOpacity(0.45);
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(6, 10, size.x - 12, size.y - 20), const Radius.circular(8)), liquid);
-    final frame = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = m.Colors.greenAccent;
-    canvas.drawRRect(RRect.fromRectAndRadius(size.toRect(), const Radius.circular(12)), frame);
-  }
 }
 
-class BioRack extends PositionComponent implements Inspectable {
+class BioRack extends SpriteComponent implements Inspectable {
   @override
   final String label = 'Specimen Rack';
   @override
   final List<String> lines = const [
     'Cultures indexed. Access constrained to principal investigators.',
   ];
-  BioRack({required super.position}) {
+  BioRack({required super.position, required super.sprite}) {
     size = Vector2(120, 32);
     anchor = Anchor.center;
   }
-  @override
-  void render(Canvas canvas) {
-    final shelf = Paint()..color = m.Colors.blueGrey.shade700;
-    canvas.drawRRect(RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)), shelf);
-    final vial = Paint()..color = m.Colors.purpleAccent.withOpacity(0.8);
-    for (double x = 10; x < size.x - 8; x += 18) {
-      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, 8, 10, 16), const Radius.circular(3)), vial);
-    }
-  }
 }
 
-class ConsentConsole extends PositionComponent implements Inspectable {
+class ConsentConsole extends SpriteComponent implements Inspectable {
   @override
   final String label = 'Consent Console';
   @override
@@ -773,18 +730,9 @@ class ConsentConsole extends PositionComponent implements Inspectable {
     'Touch to confirm informed consent.',
     'Logging consent… secure channel engaged.'
   ];
-  ConsentConsole({required super.position}) {
+  ConsentConsole({required super.position, required super.sprite}) {
     size = Vector2(60, 44);
     anchor = Anchor.center;
-  }
-  @override
-  void render(Canvas canvas) {
-    final base = Paint()..color = m.Colors.blueGrey.shade800;
-    canvas.drawRRect(RRect.fromRectAndRadius(size.toRect(), const Radius.circular(8)), base);
-    final screen = Paint()..color = m.Colors.tealAccent.withOpacity(0.85);
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(6, 6, size.x - 12, size.y - 16), const Radius.circular(6)), screen);
-    final btn = Paint()..color = m.Colors.greenAccent;
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(size.x / 2 - 10, size.y - 14, 20, 8), const Radius.circular(3)), btn);
   }
 }
 
@@ -822,13 +770,12 @@ class DoctorNPC extends SpriteComponent {
   }
 }
 
-class Drone extends PositionComponent with CollisionCallbacks {
+class Drone extends SpriteComponent with CollisionCallbacks {
   int hp = 3;
   final double speed = 60;
   Vector2 _vel = Vector2.zero();
   double _t = 0;
-  Drone({required Vector2 position}) {
-    this.position = position;
+  Drone({required Vector2 position, required Sprite sprite}) : super(sprite: sprite, position: position) {
     size = Vector2(28, 28);
     anchor = Anchor.center;
   }
@@ -857,13 +804,6 @@ class Drone extends PositionComponent with CollisionCallbacks {
   void applyDamage(int dmg, Vector2 knockback) {
     hp -= dmg;
     position += knockback;
-  }
-  @override
-  void render(Canvas canvas) {
-    final body = Paint()..color = m.Colors.deepPurpleAccent;
-    canvas.drawRRect(RRect.fromRectAndRadius(size.toRect(), const Radius.circular(6)), body);
-    final eye = Paint()..color = m.Colors.white;
-    canvas.drawCircle(Offset(size.x / 2, size.y / 2), 3, eye);
   }
 }
 
