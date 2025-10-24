@@ -36,7 +36,7 @@ class UC4EGame extends FlameGame with HasCollisionDetection, KeyboardEvents {
     // Normalize Flame image prefix so asset keys start with 'assets/'
     images.prefix = 'assets/';
     // Load tileset
-    final labTilesImage = await images.load('tilesets/lab_tiles.png');
+    final labTilesImage = await images.load('image/tilesets/lab_tiles.png');
     _labTiles = SpriteSheet(image: labTilesImage, srcSize: Vector2.all(32));
 
     try {
